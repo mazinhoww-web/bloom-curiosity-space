@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -55,6 +55,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { School as SchoolType } from "@/types/database";
 import { SchoolFormDialog } from "@/components/admin/SchoolFormDialog";
 import { SchoolImportDialog } from "@/components/admin/SchoolImportDialog";
+import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
 
 const PAGE_SIZES = [20, 50, 100];
 const DEBOUNCE_MS = 400;
@@ -62,6 +63,7 @@ const DEBOUNCE_MS = 400;
 export default function AdminSchools() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filters, setFilters] = useState<SchoolFiltersState>({ state: "", city: "" });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -71,17 +73,19 @@ export default function AdminSchools() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Debounce search
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchQuery(value);
-    setPage(0);
-    
+  // Proper debounce with useEffect
+  useEffect(() => {
     const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
+      setDebouncedSearch(searchQuery);
     }, DEBOUNCE_MS);
     
     return () => clearTimeout(timeoutId);
-  }, []);
+  }, [searchQuery]);
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, filters]);
 
   // Fetch school stats
   const { data: stats } = useQuery({
@@ -97,9 +101,9 @@ export default function AdminSchools() {
     staleTime: 60000,
   });
 
-  // Fetch schools with pagination and search
+  // Fetch schools with pagination, search, and filters
   const { data: schoolsData, isLoading, isFetching } = useQuery({
-    queryKey: ["admin-schools", debouncedSearch, page, pageSize],
+    queryKey: ["admin-schools", debouncedSearch, filters, page, pageSize],
     queryFn: async () => {
       const from = page * pageSize;
       const to = from + pageSize - 1;
@@ -110,8 +114,8 @@ export default function AdminSchools() {
         .order("name")
         .range(from, to);
 
+      // Apply search filter
       if (debouncedSearch.trim()) {
-        // Use trigram search for name, or exact match for CEP
         const cleanSearch = debouncedSearch.trim();
         const isCepSearch = /^\d+$/.test(cleanSearch.replace(/\D/g, ''));
         
@@ -120,6 +124,16 @@ export default function AdminSchools() {
         } else {
           query = query.ilike("name", `%${cleanSearch}%`);
         }
+      }
+
+      // Apply state filter
+      if (filters.state) {
+        query = query.eq("state", filters.state);
+      }
+
+      // Apply city filter
+      if (filters.city) {
+        query = query.eq("city", filters.city);
       }
 
       const { data, error, count } = await query;
@@ -217,11 +231,11 @@ export default function AdminSchools() {
               <Input
                 placeholder="Buscar por nome ou CEP..."
                 value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              {isFetching && debouncedSearch && (
+              {isFetching && (debouncedSearch || filters.state || filters.city) && (
                 <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
               )}
             </div>
@@ -237,20 +251,25 @@ export default function AdminSchools() {
             </div>
           </div>
 
-          {/* Help text for search */}
-          {!debouncedSearch && (
+          {/* Filters */}
+          <div className="mb-4">
+            <SchoolFilters filters={filters} onFiltersChange={setFilters} />
+          </div>
+
+          {/* Help text for search - only show if no search AND no filters */}
+          {!debouncedSearch && !filters.state && !filters.city && (
             <div className="mb-4 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
               <Search className="mx-auto mb-2 h-6 w-6" />
-              <p>Digite o nome ou CEP para buscar escolas.</p>
-              <p className="text-xs">A busca é obrigatória para visualizar os registros.</p>
+              <p>Digite o nome ou CEP para buscar escolas, ou use os filtros acima.</p>
+              <p className="text-xs">A busca ou filtro é obrigatório para visualizar os registros.</p>
             </div>
           )}
 
-          {debouncedSearch && isLoading ? (
+          {(debouncedSearch || filters.state || filters.city) && isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : debouncedSearch && schoolsData && schoolsData.schools.length > 0 ? (
+          ) : (debouncedSearch || filters.state || filters.city) && schoolsData && schoolsData.schools.length > 0 ? (
             <>
               <div className="overflow-x-auto">
                 <Table>
@@ -363,10 +382,10 @@ export default function AdminSchools() {
                 </div>
               </div>
             </>
-          ) : debouncedSearch ? (
+          ) : (debouncedSearch || filters.state || filters.city) ? (
             <div className="py-12 text-center">
               <p className="text-muted-foreground">
-                Nenhuma escola encontrada com "{debouncedSearch}".
+                Nenhuma escola encontrada com os critérios selecionados.
               </p>
             </div>
           ) : null}

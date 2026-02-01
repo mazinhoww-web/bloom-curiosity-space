@@ -80,9 +80,84 @@ export function useAnalytics() {
     }
   }, []);
 
+  // Track store cart section view (when user sees the store comparison)
+  const trackStoreCartView = useCallback(async (
+    listId: string,
+    schoolId: string,
+    storeIds: string[]
+  ) => {
+    // Deduplicate: only track once per list per session
+    const eventKey = `storecart_${listId}`;
+    if (firedEvents.current.has(eventKey)) return;
+    firedEvents.current.add(eventKey);
+
+    try {
+      // Track a store click with no item_id to indicate cart view
+      // We'll track one event with metadata about stores shown
+      await supabase.from("store_click_events").insert({
+        store_id: storeIds[0] || null, // Primary store shown
+        school_id: schoolId,
+        list_id: listId,
+        item_id: null, // null item_id indicates cart view, not item click
+        session_id: getSessionId(),
+        user_agent: navigator.userAgent,
+        referrer: document.referrer || null,
+      });
+    } catch (error) {
+      console.error("Failed to track store cart view:", error);
+    }
+  }, []);
+
+  // Track store click (when user clicks "Buy all" or individual item)
+  const trackStoreClick = useCallback(async (
+    storeId: string,
+    schoolId?: string,
+    listId?: string,
+    itemId?: string
+  ) => {
+    // Don't deduplicate clicks - users may click multiple times intentionally
+    try {
+      await supabase.from("store_click_events").insert({
+        store_id: storeId,
+        school_id: schoolId || null,
+        list_id: listId || null,
+        item_id: itemId || null,
+        session_id: getSessionId(),
+        user_agent: navigator.userAgent,
+        referrer: document.referrer || null,
+      });
+    } catch (error) {
+      console.error("Failed to track store click:", error);
+    }
+  }, []);
+
+  // Track upload completed event
+  const trackUploadCompleted = useCallback(async (
+    uploadedListId: string,
+    metadata?: Record<string, unknown>
+  ) => {
+    try {
+      await supabase.from("upload_events").insert([{
+        uploaded_list_id: uploadedListId,
+        event_type: "upload_completed",
+        session_id: getSessionId(),
+        metadata: metadata as Record<string, string | number | boolean | null> | null,
+      }]);
+    } catch (error) {
+      console.error("Failed to track upload completed:", error);
+    }
+  }, []);
+
   return {
     trackCepSearch,
     trackSchoolView,
     trackListView,
+    trackStoreCartView,
+    trackStoreClick,
+    trackUploadCompleted,
+    getSessionId,
   };
 }
+
+// Export session ID getter for use outside React components
+export { getSessionId };

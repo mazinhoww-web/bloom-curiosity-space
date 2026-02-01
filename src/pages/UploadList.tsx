@@ -229,6 +229,7 @@ export default function UploadList() {
                   schoolName={publishResult.schoolName}
                   gradeName={publishResult.gradeName}
                   itemsCount={publishResult.itemsCount}
+                  uploadedListId={uploadedList?.id}
                   onReset={handleReset}
                 />
               )}

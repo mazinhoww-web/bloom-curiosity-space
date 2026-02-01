@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -55,9 +56,11 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [fileType, setFileType] = useState<string>("image/jpeg");
+  const [fileName, setFileName] = useState<string>("");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
-  const [stage, setStage] = useState<"upload" | "analyzing" | "review">("upload");
+  const [stage, setStage] = useState<"upload" | "uploading" | "analyzing" | "review">("upload");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -116,22 +119,52 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
     }
 
     setFileType(file.type);
+    setFileName(file.name);
+    setStage("uploading");
+    setUploadProgress(0);
 
     const reader = new FileReader();
+    
+    // Simular progresso de leitura do arquivo
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(progress);
+      }
+    };
+
     reader.onload = (event) => {
       const result = event.target?.result as string;
       
-      if (file.type.startsWith("image/")) {
-        setImagePreview(result);
-      } else {
-        // PDF - mostrar ícone
-        setImagePreview(null);
-      }
+      // Garantir que o progresso chegue a 100%
+      setUploadProgress(100);
       
-      // Extrair base64 (remover prefixo data:...)
-      const base64 = result.split(",")[1];
-      setImageBase64(base64);
+      // Pequeno delay para mostrar 100% antes de transicionar
+      setTimeout(() => {
+        if (file.type.startsWith("image/")) {
+          setImagePreview(result);
+        } else {
+          // PDF - mostrar ícone
+          setImagePreview(null);
+        }
+        
+        // Extrair base64 (remover prefixo data:...)
+        const base64 = result.split(",")[1];
+        setImageBase64(base64);
+        setStage("upload");
+      }, 300);
     };
+
+    reader.onerror = () => {
+      toast({
+        variant: "destructive",
+        title: "Erro ao ler arquivo",
+        description: "Não foi possível processar o arquivo selecionado.",
+      });
+      setStage("upload");
+      setUploadProgress(0);
+    };
+
     reader.readAsDataURL(file);
   }, [toast]);
 
@@ -174,9 +207,11 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
   const handleClose = () => {
     setImagePreview(null);
     setImageBase64(null);
+    setFileName("");
     setAnalysisResult(null);
     setSelectedItems(new Set());
     setStage("upload");
+    setUploadProgress(0);
     onClose();
   };
 
@@ -292,6 +327,28 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
                 </Button>
               )}
             </>
+          )}
+
+          {stage === "uploading" && (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-full max-w-xs space-y-4">
+                <div className="flex items-center justify-center">
+                  <Upload className="h-12 w-12 text-primary animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <Progress value={uploadProgress} className="h-2" />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Carregando arquivo...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  {fileName && (
+                    <p className="text-center text-sm text-muted-foreground truncate">
+                      {fileName}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {stage === "analyzing" && (

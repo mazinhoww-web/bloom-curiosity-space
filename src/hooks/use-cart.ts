@@ -11,6 +11,7 @@ export interface CartItem {
   schoolId: string;
   schoolName: string;
   gradeName: string;
+  owned?: boolean;
 }
 
 const CART_KEY = "listinha_cart";
@@ -67,13 +68,26 @@ export function useCart() {
     });
   }, []);
 
+  const toggleOwned = useCallback((itemId: string) => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === itemId ? { ...i, owned: !i.owned } : i
+      )
+    );
+  }, []);
+
   const totalItems = items.length;
   
-  const totalEstimate = items.reduce((sum, item) => {
-    return sum + (item.price_estimate || 0) * (item.quantity || 1);
-  }, 0);
+  const totalEstimate = items
+    .filter((i) => !i.owned)
+    .reduce((sum, item) => {
+      return sum + (item.price_estimate || 0) * (item.quantity || 1);
+    }, 0);
 
-  const itemsWithPurchaseUrl = items.filter((i) => i.purchase_url);
+  const itemsWithPurchaseUrl = items.filter((i) => i.purchase_url && !i.owned);
+
+  const itemsNotOwned = items.filter((i) => !i.owned);
+  const ownedCount = items.filter((i) => i.owned).length;
 
   return {
     items,
@@ -82,8 +96,11 @@ export function useCart() {
     clearCart,
     isInCart,
     toggleItem,
+    toggleOwned,
     totalItems,
     totalEstimate,
     itemsWithPurchaseUrl,
+    itemsNotOwned,
+    ownedCount,
   };
 }

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { BookOpen, Menu, X } from "lucide-react";
+import { BookOpen, Menu, X, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { CartDrawer } from "@/components/cart/CartDrawer";
@@ -32,6 +32,12 @@ export function Header() {
             className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
           >
             Escolas
+          </Link>
+          <Link to="/contribuir">
+            <Button variant="ghost" size="sm" className="gap-1 text-primary">
+              <Upload className="h-4 w-4" />
+              Contribuir
+            </Button>
           </Link>
           <CartDrawer />
           <Link to="/admin">
@@ -71,6 +77,14 @@ export function Header() {
               onClick={() => setIsMenuOpen(false)}
             >
               Escolas
+            </Link>
+            <Link 
+              to="/contribuir" 
+              className="rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-muted flex items-center gap-2"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Upload className="h-4 w-4" />
+              Contribuir Lista
             </Link>
             <Link 
               to="/admin"

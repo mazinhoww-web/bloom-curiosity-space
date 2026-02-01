@@ -542,6 +542,129 @@ export type Database = {
           },
         ]
       }
+      upload_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          session_id: string | null
+          uploaded_list_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          session_id?: string | null
+          uploaded_list_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          session_id?: string | null
+          uploaded_list_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upload_events_uploaded_list_id_fkey"
+            columns: ["uploaded_list_id"]
+            isOneToOne: false
+            referencedRelation: "uploaded_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      uploaded_lists: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          extracted_items: Json | null
+          file_name: string
+          file_path: string
+          file_size: number | null
+          file_type: string
+          grade_id: string | null
+          id: string
+          material_list_id: string | null
+          processing_message: string | null
+          processing_progress: number | null
+          school_id: string | null
+          school_name_custom: string | null
+          session_id: string | null
+          status: string
+          updated_at: string
+          user_agent: string | null
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          extracted_items?: Json | null
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          file_type: string
+          grade_id?: string | null
+          id?: string
+          material_list_id?: string | null
+          processing_message?: string | null
+          processing_progress?: number | null
+          school_id?: string | null
+          school_name_custom?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+          year?: number
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          extracted_items?: Json | null
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          file_type?: string
+          grade_id?: string | null
+          id?: string
+          material_list_id?: string | null
+          processing_message?: string | null
+          processing_progress?: number | null
+          school_id?: string | null
+          school_name_custom?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "uploaded_lists_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
+            referencedRelation: "grades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "uploaded_lists_material_list_id_fkey"
+            columns: ["material_list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "uploaded_lists_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string

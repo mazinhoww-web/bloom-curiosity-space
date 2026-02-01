@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.store-carts]
 verify_jwt = false
+
+[functions.process-public-upload]
+verify_jwt = false
+
+[functions.publish-uploaded-list]
+verify_jwt = false

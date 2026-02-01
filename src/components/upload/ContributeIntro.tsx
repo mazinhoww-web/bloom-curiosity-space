@@ -1,4 +1,4 @@
-import { Heart, Users, Clock, CheckCircle2 } from "lucide-react";
+import { Camera, FileText, PenLine, Sparkles, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ContributeIntroProps {
@@ -7,74 +7,66 @@ interface ContributeIntroProps {
 
 export function ContributeIntro({ onStart }: ContributeIntroProps) {
   return (
-    <div className="space-y-8">
-      {/* Hero */}
-      <div className="text-center">
-        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-accent/20 to-primary/20">
-          <Heart className="h-10 w-10 text-accent" />
-        </div>
-        <h1 className="font-display text-3xl font-bold text-foreground md:text-4xl">
-          Ajude outros pais
+    <div className="space-y-6 text-center">
+      {/* Icon */}
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+        <Heart className="h-8 w-8 text-primary" />
+      </div>
+
+      {/* Title */}
+      <div className="space-y-2">
+        <h1 className="font-display text-2xl font-bold text-foreground">
+          Contribua com uma lista
         </h1>
-        <p className="mt-4 text-lg text-muted-foreground leading-relaxed">
-          Compartilhe a lista de materiais da escola do seu filho e economize 
-          tempo de centenas de famílias.
+        <p className="text-muted-foreground">
+          Ajude outros pais a encontrar a lista de materiais da escola.
+          É rápido, gratuito e anônimo.
         </p>
       </div>
 
-      {/* Benefits */}
-      <div className="grid gap-4">
-        <div className="flex items-start gap-4 rounded-xl bg-muted/50 p-4">
+      {/* Methods */}
+      <div className="grid gap-3 text-left">
+        <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Users className="h-5 w-5 text-primary" />
+            <Camera className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Ajuda coletiva</h3>
-            <p className="text-sm text-muted-foreground">
-              Um pai envia, dezenas economizam tempo procurando
-            </p>
+            <p className="text-sm font-medium">Fotografe a lista</p>
+            <p className="text-xs text-muted-foreground">Use a câmera do celular</p>
           </div>
         </div>
 
-        <div className="flex items-start gap-4 rounded-xl bg-muted/50 p-4">
+        <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary/10">
-            <Clock className="h-5 w-5 text-secondary" />
+            <FileText className="h-5 w-5 text-secondary" />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Rápido e simples</h3>
-            <p className="text-sm text-muted-foreground">
-              Menos de 2 minutos. Foto, PDF ou digitar os itens
-            </p>
+            <p className="text-sm font-medium">Envie o arquivo</p>
+            <p className="text-xs text-muted-foreground">PDF, Word ou imagem</p>
           </div>
         </div>
 
-        <div className="flex items-start gap-4 rounded-xl bg-muted/50 p-4">
+        <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10">
-            <CheckCircle2 className="h-5 w-5 text-accent" />
+            <PenLine className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Sem cadastro</h3>
-            <p className="text-sm text-muted-foreground">
-              Não pedimos login, email ou dados pessoais
-            </p>
+            <p className="text-sm font-medium">Digite manualmente</p>
+            <p className="text-xs text-muted-foreground">Item por item</p>
           </div>
         </div>
+      </div>
+
+      {/* AI Badge */}
+      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <span>IA extrai os itens automaticamente</span>
       </div>
 
       {/* CTA */}
-      <div className="space-y-4">
-        <Button
-          size="lg"
-          className="w-full h-14 rounded-xl text-lg font-semibold shadow-lg"
-          onClick={onStart}
-        >
-          Começar agora
-        </Button>
-        
-        <p className="text-center text-sm text-muted-foreground">
-          Sua contribuição fica disponível imediatamente para outros pais
-        </p>
-      </div>
+      <Button size="lg" className="w-full" onClick={onStart}>
+        Começar agora
+      </Button>
     </div>
   );
 }

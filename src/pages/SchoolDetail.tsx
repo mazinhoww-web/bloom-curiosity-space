@@ -142,10 +142,20 @@ export default function SchoolDetail() {
     }
   }, [selectedList?.id, school?.id, trackListView]);
 
-  // Group items by category
+  // Group items by category and sort essentials first
   const itemsByCategory = useMemo(() => {
     if (!selectedList?.material_items) return {};
-    return selectedList.material_items.reduce((acc, item) => {
+    
+    // First, sort all items: essentials first
+    const sortedItems = [...selectedList.material_items].sort((a, b) => {
+      const aEssential = a.is_required !== false;
+      const bEssential = b.is_required !== false;
+      if (aEssential && !bEssential) return -1;
+      if (!aEssential && bEssential) return 1;
+      return 0;
+    });
+    
+    return sortedItems.reduce((acc, item) => {
       const categoryName = item.material_categories?.name || "Outros";
       if (!acc[categoryName]) {
         acc[categoryName] = {
@@ -408,7 +418,7 @@ export default function SchoolDetail() {
                       </div>
                       <Button
                         size="lg"
-                        className="gap-2"
+                        className="gap-2 bg-gradient-to-r from-primary to-primary/80 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all transform hover:scale-105 animate-pulse-slow"
                         onClick={() => {
                           if (!selectedList?.material_items || !school) return;
                           let addedCount = 0;
@@ -430,13 +440,13 @@ export default function SchoolDetail() {
                             }
                           });
                           toast({
-                            title: "Itens adicionados ao carrinho",
-                            description: `${addedCount} itens foram adicionados.`,
+                            title: "🛒 Itens adicionados ao carrinho!",
+                            description: `${addedCount} itens foram adicionados. Pronto para comprar!`,
                           });
                         }}
                       >
                         <ShoppingCart className="h-5 w-5" />
-                        Adicionar Todos ao Carrinho
+                        🛒 Comprar Tudo
                       </Button>
                     </div>
                   </CardContent>
@@ -462,7 +472,11 @@ export default function SchoolDetail() {
                           <div 
                             key={item.id} 
                             className={`flex items-center gap-3 p-4 transition-colors ${
-                              itemOwned ? "bg-muted/50" : ""
+                              itemOwned 
+                                ? "bg-muted/50" 
+                                : item.is_required !== false 
+                                  ? "bg-primary/5 border-l-4 border-l-primary" 
+                                  : ""
                             }`}
                           >
                             {/* Checkbox "Já tenho" */}
@@ -481,8 +495,8 @@ export default function SchoolDetail() {
                                   {item.quantity}x {item.name}
                                 </span>
                                 {item.is_required !== false ? (
-                                  <Badge className="text-xs bg-primary/10 text-primary border-primary/20">
-                                    Essencial
+                                  <Badge className="text-xs bg-primary text-primary-foreground font-semibold shadow-sm">
+                                    ⭐ Essencial
                                   </Badge>
                                 ) : (
                                   <Badge variant="outline" className="text-xs text-muted-foreground">

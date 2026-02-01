@@ -1,4 +1,4 @@
-import { Search, ChevronRight } from "lucide-react";
+import { Search, ChevronRight, Heart } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,18 @@ export function FinalCTA() {
     <section className="py-20 md:py-28 bg-gradient-to-br from-primary via-primary to-secondary">
       <div className="container">
         <div className="mx-auto max-w-2xl text-center">
+          {/* Empathy */}
+          <div className="mb-6 inline-flex items-center gap-2 text-white/80">
+            <Heart className="h-5 w-5" />
+            <span className="text-sm font-medium">Comece o ano letivo tranquilo</span>
+          </div>
+
           {/* Headline */}
           <h2 className="mb-6 font-display text-3xl font-bold text-white md:text-4xl">
-            Pronto para encontrar a lista de materiais?
+            Pronto para encontrar a lista?
           </h2>
           <p className="mb-10 text-lg text-white/90">
-            Digite o CEP da escola e comece agora mesmo. É grátis e não precisa de cadastro.
+            Digite o CEP e veja a lista de materiais da escola do seu filho agora mesmo.
           </p>
 
           {/* Search Form */}
@@ -58,10 +64,14 @@ export function FinalCTA() {
             </div>
           </form>
 
-          {/* Reassurance */}
-          <p className="mt-8 text-sm text-white/70">
-            ✓ Sem cadastro &nbsp;&nbsp; ✓ 100% gratuito &nbsp;&nbsp; ✓ Acesso imediato
-          </p>
+          {/* Final Reassurance */}
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4 text-sm text-white/80">
+            <span>✓ Gratuito</span>
+            <span className="hidden sm:inline">•</span>
+            <span>✓ Sem cadastro</span>
+            <span className="hidden sm:inline">•</span>
+            <span>✓ Leva menos de 1 minuto</span>
+          </div>
         </div>
       </div>
     </section>

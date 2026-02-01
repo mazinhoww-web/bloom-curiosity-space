@@ -1,34 +1,30 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { HeroSearch } from "@/components/landing/HeroSearch";
-import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
-import { ForParentsSection } from "@/components/landing/ForParentsSection";
-import { ForSchoolsSection } from "@/components/landing/ForSchoolsSection";
-import { ForPartnersSection } from "@/components/landing/ForPartnersSection";
-import { ValueProposition } from "@/components/landing/ValueProposition";
+import { BenefitsSection } from "@/components/landing/BenefitsSection";
+import { HowToUseSection } from "@/components/landing/HowToUseSection";
+import { ShareSection } from "@/components/landing/ShareSection";
+import { TrustSection } from "@/components/landing/TrustSection";
 import { FinalCTA } from "@/components/landing/FinalCTA";
 
 const Index = () => {
   return (
     <MainLayout>
-      {/* 1. Hero with Search */}
+      {/* 1. Hero - Empático com busca */}
       <HeroSearch />
       
-      {/* 2. How It Works */}
-      <HowItWorksSection />
+      {/* 2. Benefícios para Pais */}
+      <BenefitsSection />
       
-      {/* 3. For Parents */}
-      <ForParentsSection />
+      {/* 3. Como Usar - Passo a passo */}
+      <HowToUseSection />
       
-      {/* 4. For Schools */}
-      <ForSchoolsSection />
+      {/* 4. Compartilhamento */}
+      <ShareSection />
       
-      {/* 5. For Partners */}
-      <ForPartnersSection />
+      {/* 5. Segurança e Transparência */}
+      <TrustSection />
       
-      {/* 6. Value Proposition */}
-      <ValueProposition />
-      
-      {/* 7. Final CTA */}
+      {/* 6. CTA Final */}
       <FinalCTA />
     </MainLayout>
   );

@@ -43,6 +43,7 @@ interface MaterialItemWithCategory extends MaterialItem {
 interface MaterialListWithGrade extends MaterialList {
   grades: Grade;
   material_items: MaterialItemWithCategory[];
+  is_official?: boolean;
 }
 
 export default function SchoolDetail() {
@@ -333,9 +334,19 @@ export default function SchoolDetail() {
               </CardContent>
             </Card>
 
-            {/* Materials list */}
+            {/* Official badge + Materials list */}
             {selectedList && (
               <div className="space-y-6">
+                {(selectedList as any).is_official && (
+                  <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3">
+                    <Badge variant="default" className="bg-success text-success-foreground">
+                      ✓ Lista Oficial da Escola
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      Esta é a lista oficial de materiais para {selectedList.grades?.name}
+                    </span>
+                  </div>
+                )}
                 {Object.entries(itemsByCategory).map(([categoryName, { category, items }]) => (
                   <Card key={categoryName} className="overflow-hidden">
                     <CardHeader className="bg-muted/50">

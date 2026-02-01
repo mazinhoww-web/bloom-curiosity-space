@@ -21,7 +21,7 @@ type AuthFormData = z.infer<typeof authSchema>;
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { signIn, signUp, user, isLoading, isAdmin } = useAuth();
+  const { signIn, signUp, user, isLoading, isAdmin, isSchoolAdmin } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
@@ -37,10 +37,15 @@ export default function Auth() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      const redirectTo = searchParams.get("redirect") || (isAdmin ? "/admin" : "/");
+      let redirectTo = searchParams.get("redirect");
+      if (!redirectTo) {
+        if (isAdmin) redirectTo = "/admin";
+        else if (isSchoolAdmin) redirectTo = "/escola-admin";
+        else redirectTo = "/";
+      }
       navigate(redirectTo, { replace: true });
     }
-  }, [user, isLoading, isAdmin, navigate, searchParams]);
+  }, [user, isLoading, isAdmin, isSchoolAdmin, navigate, searchParams]);
 
   const onSubmit = async (data: AuthFormData) => {
     setIsSubmitting(true);

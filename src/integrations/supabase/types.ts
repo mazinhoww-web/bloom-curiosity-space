@@ -458,11 +458,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_school_admin_school_id: {
+        Args: { _user_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      is_school_admin: {
+        Args: { _school_id: string; _user_id: string }
         Returns: boolean
       }
     }

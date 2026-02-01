@@ -60,43 +60,30 @@ const BRAZILIAN_STATES = [
 export function SchoolFilters({ filters, onFiltersChange }: SchoolFiltersProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Fetch cities based on selected state
+  // Fetch cities using RPC function for efficiency
   const { data: cities = [] } = useQuery({
-    queryKey: ["school-cities", filters.state],
+    queryKey: ["school-cities-rpc", filters.state],
     queryFn: async () => {
       if (!filters.state) return [];
       
-      const { data, error } = await supabase
-        .from("schools")
-        .select("city")
-        .eq("state", filters.state)
-        .eq("is_active", true)
-        .not("city", "is", null)
-        .order("city");
+      const { data, error } = await supabase.rpc("get_distinct_school_cities", {
+        p_state: filters.state
+      });
 
       if (error) throw error;
-
-      // Get unique cities
-      const uniqueCities = [...new Set(data.map((s) => s.city).filter(Boolean))];
-      return uniqueCities as string[];
+      return (data || []).map((row: { city: string }) => row.city);
     },
     enabled: !!filters.state,
   });
 
-  // Fetch available states from database
+  // Fetch available states using RPC function for efficiency
   const { data: availableStates = [] } = useQuery({
-    queryKey: ["school-states"],
+    queryKey: ["school-states-rpc"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("schools")
-        .select("state")
-        .eq("is_active", true)
-        .not("state", "is", null);
+      const { data, error } = await supabase.rpc("get_distinct_school_states");
 
       if (error) throw error;
-
-      const uniqueStates = [...new Set(data.map((s) => s.state).filter(Boolean))];
-      return uniqueStates as string[];
+      return (data || []).map((row: { state: string }) => row.state);
     },
   });
 

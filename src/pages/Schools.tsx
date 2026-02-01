@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { School } from "@/types/database";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
 import { useAnalytics } from "@/hooks/use-analytics";
+import { cleanSchoolName } from "@/lib/school-utils";
 
 const ITEMS_PER_PAGE = 50;
 
@@ -183,7 +184,7 @@ export default function Schools() {
                         </div>
 
                         <h3 className="mb-2 font-display text-lg font-bold text-foreground transition-colors group-hover:text-primary line-clamp-2">
-                          {school.name}
+                          {cleanSchoolName(school.name)}
                         </h3>
 
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

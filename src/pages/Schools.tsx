@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Search, School as SchoolIcon, MapPin } from "lucide-react";
+import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { School } from "@/types/database";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
 import { useAnalytics } from "@/hooks/use-analytics";
 
-const ITEMS_PER_PAGE = 24;
+const ITEMS_PER_PAGE = 50;
 
 export default function Schools() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -160,8 +160,8 @@ export default function Schools() {
 
           {/* Loading */}
           {isLoading ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {[...Array(6)].map((_, i) => (
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {[...Array(12)].map((_, i) => (
                 <Card key={i}>
                   <CardContent className="p-6">
                     <Skeleton className="mb-4 h-12 w-12 rounded-xl" />
@@ -173,7 +173,7 @@ export default function Schools() {
             </div>
           ) : schools.length > 0 ? (
             <>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {schools.map((school) => (
                   <Link key={school.id} to={`/escola/${school.slug}`}>
                     <Card className="group h-full cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
@@ -182,13 +182,13 @@ export default function Schools() {
                           <SchoolIcon className="h-6 w-6 text-primary transition-colors group-hover:text-primary-foreground" />
                         </div>
 
-                        <h3 className="mb-2 font-display text-lg font-bold text-foreground transition-colors group-hover:text-primary">
+                        <h3 className="mb-2 font-display text-lg font-bold text-foreground transition-colors group-hover:text-primary line-clamp-2">
                           {school.name}
                         </h3>
 
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4" />
-                          <span>
+                          <MapPin className="h-4 w-4 shrink-0" />
+                          <span className="truncate">
                             {school.city && school.state
                               ? `${school.city}, ${school.state}`
                               : `CEP: ${school.cep}`}
@@ -202,24 +202,123 @@ export default function Schools() {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="mt-8 flex items-center justify-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    Anterior
-                  </Button>
-                  <span className="px-4 text-sm text-muted-foreground">
-                    Página {page} de {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                  >
-                    Próxima
-                  </Button>
+                <div className="mt-8 flex flex-col items-center gap-4">
+                  <div className="flex flex-wrap items-center justify-center gap-1">
+                    {/* First page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setPage(1)}
+                      disabled={page === 1}
+                      className="h-9 w-9"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    
+                    {/* Previous page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="h-9 w-9"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    
+                    {/* Page numbers */}
+                    {(() => {
+                      const maxVisible = 5;
+                      let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
+                      let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+                      
+                      if (endPage - startPage + 1 < maxVisible) {
+                        startPage = Math.max(1, endPage - maxVisible + 1);
+                      }
+                      
+                      const pages = [];
+                      
+                      if (startPage > 1) {
+                        pages.push(
+                          <Button
+                            key={1}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(1)}
+                            className="h-9 min-w-[36px]"
+                          >
+                            1
+                          </Button>
+                        );
+                        if (startPage > 2) {
+                          pages.push(
+                            <span key="start-ellipsis" className="px-2 text-muted-foreground">...</span>
+                          );
+                        }
+                      }
+                      
+                      for (let p = startPage; p <= endPage; p++) {
+                        pages.push(
+                          <Button
+                            key={p}
+                            variant={page === p ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setPage(p)}
+                            className="h-9 min-w-[36px]"
+                          >
+                            {p}
+                          </Button>
+                        );
+                      }
+                      
+                      if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) {
+                          pages.push(
+                            <span key="end-ellipsis" className="px-2 text-muted-foreground">...</span>
+                          );
+                        }
+                        pages.push(
+                          <Button
+                            key={totalPages}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(totalPages)}
+                            className="h-9 min-w-[36px]"
+                          >
+                            {totalPages.toLocaleString('pt-BR')}
+                          </Button>
+                        );
+                      }
+                      
+                      return pages;
+                    })()}
+                    
+                    {/* Next page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="h-9 w-9"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    
+                    {/* Last page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setPage(totalPages)}
+                      disabled={page === totalPages}
+                      className="h-9 w-9"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  <p className="text-sm text-muted-foreground">
+                    Página {page.toLocaleString('pt-BR')} de {totalPages.toLocaleString('pt-BR')} ({totalSchools.toLocaleString('pt-BR')} escolas)
+                  </p>
                 </div>
               )}
             </>

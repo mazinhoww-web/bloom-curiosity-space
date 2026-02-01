@@ -634,6 +634,11 @@ export default function SchoolDetail() {
                     </CardContent>
                   </Card>
                 ))}
+
+                {/* Transparency disclosure */}
+                <p className="text-center text-xs text-muted-foreground/70 pt-4">
+                  Alguns links podem gerar comissão para manter a plataforma gratuita
+                </p>
               </div>
             )}
 

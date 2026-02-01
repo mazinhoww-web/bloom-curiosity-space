@@ -597,6 +597,75 @@ export type Database = {
           },
         ]
       }
+      school_claim_requests: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          notes: string | null
+          phone: string | null
+          position: string
+          rejection_reason: string | null
+          requested_role: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          school_id: string
+          status: Database["public"]["Enums"]["claim_request_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          position: string
+          rejection_reason?: string | null
+          requested_role?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          school_id: string
+          status?: Database["public"]["Enums"]["claim_request_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          position?: string
+          rejection_reason?: string | null
+          requested_role?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          school_id?: string
+          status?: Database["public"]["Enums"]["claim_request_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_claim_requests_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "school_claim_requests_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       school_view_events: {
         Row: {
           id: string
@@ -1156,6 +1225,10 @@ export type Database = {
       }
     }
     Functions: {
+      approve_claim_request: {
+        Args: { p_request_id: string; p_role?: string }
+        Returns: boolean
+      }
       get_cep_suggestions: {
         Args: { cep_prefix: string; max_results?: number }
         Returns: {
@@ -1202,6 +1275,25 @@ export type Database = {
         Returns: string
       }
       get_state_from_cep: { Args: { cep: string }; Returns: string }
+      get_user_claim_status: {
+        Args: { p_school_id: string; p_user_id: string }
+        Returns: {
+          has_access: boolean
+          pending_request_id: string
+          pending_since: string
+          user_role: string
+        }[]
+      }
+      get_user_managed_schools: {
+        Args: { p_user_id: string }
+        Returns: {
+          created_at: string
+          role: Database["public"]["Enums"]["app_role"]
+          school_id: string
+          school_name: string
+          school_slug: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1213,6 +1305,7 @@ export type Database = {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
       }
+      is_generic_email: { Args: { email_address: string }; Returns: boolean }
       is_school_admin: {
         Args: { _school_id: string; _user_id: string }
         Returns: boolean
@@ -1222,6 +1315,11 @@ export type Database = {
         Args: { _list_id: string; _user_id: string }
         Returns: boolean
       }
+      reject_claim_request: {
+        Args: { p_reason?: string; p_request_id: string }
+        Returns: boolean
+      }
+      school_has_admin: { Args: { p_school_id: string }; Returns: boolean }
       search_schools: {
         Args: {
           filter_city?: string
@@ -1320,7 +1418,13 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
-      app_role: "admin" | "moderator" | "user"
+      app_role:
+        | "admin"
+        | "moderator"
+        | "user"
+        | "school_admin"
+        | "school_editor"
+      claim_request_status: "pending" | "approved" | "rejected"
       list_status: "draft" | "published" | "flagged" | "official"
     }
     CompositeTypes: {
@@ -1449,7 +1553,8 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "moderator", "user"],
+      app_role: ["admin", "moderator", "user", "school_admin", "school_editor"],
+      claim_request_status: ["pending", "approved", "rejected"],
       list_status: ["draft", "published", "flagged", "official"],
     },
   },

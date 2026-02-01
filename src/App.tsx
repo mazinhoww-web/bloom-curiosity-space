@@ -16,6 +16,7 @@ import AdminSchools from "./pages/admin/Schools";
 import AdminLists from "./pages/admin/Lists";
 import Analytics from "./pages/admin/Analytics";
 import AdminLeads from "./pages/admin/Leads";
+import ClaimRequests from "./pages/admin/ClaimRequests";
 import SchoolAdminDashboard from "./pages/school-admin/Dashboard";
 import SchoolAdminLists from "./pages/school-admin/Lists";
 import SchoolAdminPreview from "./pages/school-admin/Preview";
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/admin/listas" element={<AdminLists />} />
             <Route path="/admin/analytics" element={<Analytics />} />
             <Route path="/admin/leads" element={<AdminLeads />} />
+            <Route path="/admin/requisicoes" element={<ClaimRequests />} />
             {/* School Admin routes */}
             <Route path="/escola-admin" element={<SchoolAdminDashboard />} />
             <Route path="/escola-admin/listas" element={<SchoolAdminLists />} />

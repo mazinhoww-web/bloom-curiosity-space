@@ -8,6 +8,7 @@ import {
   LogOut,
   GraduationCap,
   Menu,
+  ClipboardCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,11 @@ const menuItems = [
     title: "Listas de Materiais",
     url: "/admin/listas",
     icon: FileText,
+  },
+  {
+    title: "Requisições",
+    url: "/admin/requisicoes",
+    icon: ClipboardCheck,
   },
   {
     title: "Analytics",

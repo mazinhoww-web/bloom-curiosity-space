@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Upload, FileText, AlertCircle, CheckCircle2, Loader2, Download, Sparkles, Zap, Clock } from "lucide-react";
 import {
   Dialog,
@@ -57,6 +57,17 @@ interface ProcessedResult {
     school_type?: string;
     education_level?: string;
   }>;
+}
+
+interface SSEMessage {
+  type: "progress" | "complete" | "error";
+  stage?: string;
+  progress?: number;
+  message?: string;
+  current?: number;
+  total?: number;
+  data?: ProcessedResult;
+  error?: string;
 }
 
 function parseCSVLine(line: string): string[] {
@@ -207,44 +218,97 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [processedResult, setProcessedResult] = useState<ProcessedResult | null>(null);
   const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState<"upload" | "preview" | "processing" | "done">("upload");
+  const [progressMessage, setProgressMessage] = useState("");
+  const [stage, setStage] = useState<"upload" | "uploading" | "preview" | "processing" | "done">("upload");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Mutation para processar TODAS as escolas de uma vez
-  const processMutation = useMutation({
-    mutationFn: async ({ schools, insertToDb }: { schools: ParsedSchool[]; insertToDb: boolean }) => {
-      setStartTime(Date.now());
-      
-      // Enviar TODAS as escolas de uma vez para o backend
-      const { data, error } = await supabase.functions.invoke("process-schools-csv", {
-        body: { schools, insertToDb },
+  // Função para processar com SSE
+  const processWithSSE = useCallback(async (schools: ParsedSchool[], insertToDb: boolean) => {
+    setIsProcessing(true);
+    setStartTime(Date.now());
+    setProgress(0);
+    setProgressMessage("Iniciando processamento...");
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/process-schools-csv`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: JSON.stringify({
+          schools,
+          insertToDb,
+          use_sse: true,
+        }),
       });
 
-      if (error) {
-        throw error;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      return data as ProcessedResult;
-    },
-    onSuccess: (result) => {
-      setProcessedResult(result);
-      setProgress(100);
-      setStage("done");
-      queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
-      
-      const elapsed = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
-      
-      if (result.inserted > 0) {
-        toast({
-          title: "Importação concluída!",
-          description: `${result.inserted.toLocaleString()} escola(s) importada(s) em ${elapsed}s.`,
-        });
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No reader available");
       }
-    },
-    onError: (error) => {
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Parse SSE messages
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6)) as SSEMessage;
+              
+              if (data.type === "progress") {
+                setProgress(data.progress || 0);
+                setProgressMessage(data.message || "Processando...");
+              } else if (data.type === "complete" && data.data) {
+                setProcessedResult(data.data);
+                setProgress(100);
+                setStage("done");
+                queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+                
+                const elapsed = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
+                
+                if (data.data.inserted > 0) {
+                  toast({
+                    title: "Importação concluída!",
+                    description: `${data.data.inserted.toLocaleString()} escola(s) importada(s) em ${elapsed}s.`,
+                  });
+                }
+              } else if (data.type === "error") {
+                throw new Error(data.error || "Erro desconhecido");
+              }
+            } catch (parseError) {
+              // Ignore parse errors for incomplete messages
+              console.log("Parse error (may be incomplete):", parseError);
+            }
+          }
+        }
+      }
+    } catch (error) {
       console.error("Import error:", error);
       toast({
         variant: "destructive",
@@ -252,35 +316,34 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
         description: error instanceof Error ? error.message : "Erro desconhecido",
       });
       setStage("preview");
-    },
-  });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [queryClient, toast, startTime]);
 
-  // Mutation para preview (apenas 10 escolas)
-  const previewMutation = useMutation({
-    mutationFn: async (schools: ParsedSchool[]) => {
+  // Função para preview (sem SSE, apenas 10 escolas)
+  const loadPreview = useCallback(async (schools: ParsedSchool[]) => {
+    setIsLoadingPreview(true);
+    try {
       const sample = schools.slice(0, 10);
       
       const { data, error } = await supabase.functions.invoke("process-schools-csv", {
         body: { schools: sample, insertToDb: false },
       });
 
-      if (error) {
-        throw error;
-      }
-
-      return data as ProcessedResult;
-    },
-    onSuccess: (result) => {
-      setProcessedResult(result);
-    },
-    onError: (error) => {
+      if (error) throw error;
+      
+      setProcessedResult(data as ProcessedResult);
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Erro no preview",
         description: error instanceof Error ? error.message : "Erro desconhecido",
       });
-    },
-  });
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  }, [toast]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -298,33 +361,59 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     setFile(selectedFile);
     setProcessedResult(null);
     setProgress(0);
-    setStage("upload");
+    setProgressMessage("");
+    setStage("uploading");
+    setUploadProgress(0);
     setStartTime(null);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const { schools, errors } = parseCSV(content);
-      setParsedSchools(schools);
-      setParseErrors(errors);
-      
-      if (schools.length > 0) {
-        setStage("preview");
+    
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const prog = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(prog);
       }
     };
+    
+    reader.onload = (event) => {
+      setUploadProgress(100);
+      
+      setTimeout(() => {
+        const content = event.target?.result as string;
+        const { schools, errors } = parseCSV(content);
+        setParsedSchools(schools);
+        setParseErrors(errors);
+        
+        if (schools.length > 0) {
+          setStage("preview");
+        } else {
+          setStage("upload");
+        }
+      }, 300);
+    };
+    
+    reader.onerror = () => {
+      toast({
+        variant: "destructive",
+        title: "Erro ao ler arquivo",
+        description: "Não foi possível processar o arquivo selecionado.",
+      });
+      setStage("upload");
+      setUploadProgress(0);
+    };
+    
     reader.readAsText(selectedFile, "UTF-8");
   }, [toast]);
 
   const handlePreview = async () => {
     if (parsedSchools.length === 0) return;
-    previewMutation.mutate(parsedSchools);
+    loadPreview(parsedSchools);
   };
 
   const handleImport = () => {
     if (parsedSchools.length === 0) return;
     setStage("processing");
-    setProgress(10); // Mostra que iniciou
-    processMutation.mutate({ schools: parsedSchools, insertToDb: true });
+    processWithSSE(parsedSchools, true);
   };
 
   const handleClose = () => {
@@ -333,6 +422,8 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     setParseErrors([]);
     setProcessedResult(null);
     setProgress(0);
+    setProgressMessage("");
+    setUploadProgress(0);
     setStage("upload");
     setStartTime(null);
     onClose();
@@ -366,7 +457,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     );
   };
 
-  const isProcessing = processMutation.isPending || previewMutation.isPending;
+  const processingInProgress = isProcessing || isLoadingPreview;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -461,6 +552,29 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             </Alert>
           )}
 
+          {/* Uploading progress */}
+          {stage === "uploading" && (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-full max-w-xs space-y-4">
+                <div className="flex items-center justify-center">
+                  <Upload className="h-12 w-12 text-primary animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <Progress value={uploadProgress} className="h-2" />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Carregando arquivo...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  {file && (
+                    <p className="text-center text-sm text-muted-foreground truncate">
+                      {file.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Parsed count with time estimate */}
           {parsedSchools.length > 0 && stage === "preview" && !processedResult && (
             <Alert>
@@ -477,9 +591,9 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
                   variant="outline" 
                   size="sm" 
                   onClick={handlePreview}
-                  disabled={previewMutation.isPending}
+                  disabled={isLoadingPreview}
                 >
-                  {previewMutation.isPending ? (
+                  {isLoadingPreview ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Sparkles className="mr-2 h-4 w-4" />
@@ -520,15 +634,20 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
           {/* Processing progress */}
           {stage === "processing" && (
-            <div className="space-y-3">
-              <Progress value={progress} className="h-2" />
-              <div className="text-center space-y-1">
-                <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Processando {parsedSchools.length.toLocaleString()} escolas com IA...
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  O processamento ocorre em paralelo no servidor. Por favor, aguarde.
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-full max-w-xs space-y-4">
+                <div className="flex items-center justify-center">
+                  <Sparkles className="h-12 w-12 text-primary animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <Progress value={progress} className="h-2" />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{progressMessage || "Processando..."}</span>
+                    <span>{progress}%</span>
+                  </div>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  Processando {parsedSchools.length.toLocaleString()} escolas com IA em paralelo
                 </p>
               </div>
             </div>
@@ -584,15 +703,15 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
+          <Button variant="outline" onClick={handleClose} disabled={processingInProgress}>
             {stage === "done" ? "Fechar" : "Cancelar"}
           </Button>
           {stage === "preview" && parsedSchools.length > 0 && (
             <Button
               onClick={handleImport}
-              disabled={isProcessing}
+              disabled={processingInProgress}
             >
-              {isProcessing && (
+              {processingInProgress && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               <Sparkles className="mr-2 h-4 w-4" />

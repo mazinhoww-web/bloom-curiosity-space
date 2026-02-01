@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import {
   ArrowRight,
   ShoppingCart,
@@ -23,6 +24,7 @@ import {
   DollarSign,
   Percent,
   Eye,
+  Loader2,
 } from "lucide-react";
 
 export default function Partners() {
@@ -48,15 +50,35 @@ export default function Partners() {
     }
 
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
     
-    toast({
-      title: "Mensagem enviada!",
-      description: "Nossa equipe comercial entrará em contato em até 24h.",
-    });
-    
-    setFormData({ name: "", company: "", email: "", partnerType: "varejo", message: "" });
-    setIsSubmitting(false);
+    try {
+      const { error } = await supabase.from("leads").insert({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        company: formData.company.trim(),
+        lead_type: "partner",
+        partner_type: formData.partnerType,
+        message: formData.message.trim() || null,
+      });
+
+      if (error) throw error;
+      
+      toast({
+        title: "Mensagem enviada!",
+        description: "Nossa equipe comercial entrará em contato em até 24h.",
+      });
+      
+      setFormData({ name: "", company: "", email: "", partnerType: "varejo", message: "" });
+    } catch (error) {
+      console.error("Error submitting lead:", error);
+      toast({
+        title: "Erro ao enviar",
+        description: "Tente novamente ou entre em contato por email.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -474,7 +496,10 @@ export default function Partners() {
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? (
-                      "Enviando..."
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Enviando...
+                      </>
                     ) : (
                       <>
                         <Send className="mr-2 h-5 w-5" />

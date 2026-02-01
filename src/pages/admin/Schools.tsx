@@ -56,6 +56,7 @@ import { School as SchoolType } from "@/types/database";
 import { SchoolFormDialog } from "@/components/admin/SchoolFormDialog";
 import { SchoolImportDialog } from "@/components/admin/SchoolImportDialog";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
+import { cleanSchoolName } from "@/lib/school-utils";
 
 const PAGE_SIZES = [20, 50, 100];
 const DEBOUNCE_MS = 400;
@@ -285,7 +286,7 @@ export default function AdminSchools() {
                   <TableBody>
                     {schoolsData.schools.map((school) => (
                       <TableRow key={school.id}>
-                        <TableCell className="font-medium">{school.name}</TableCell>
+                        <TableCell className="font-medium">{cleanSchoolName(school.name)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <MapPin className="h-4 w-4" />

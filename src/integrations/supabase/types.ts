@@ -1055,6 +1055,18 @@ export type Database = {
       }
     }
     Functions: {
+      get_distinct_school_cities: {
+        Args: { p_state: string }
+        Returns: {
+          city: string
+        }[]
+      }
+      get_distinct_school_states: {
+        Args: never
+        Returns: {
+          state: string
+        }[]
+      }
       get_recommended_store: {
         Args: { _list_id: string; _school_id?: string }
         Returns: {

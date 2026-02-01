@@ -7,11 +7,16 @@ const corsHeaders = {
 
 interface ExtractedItem {
   name: string;
+  name_original?: string;
   quantity: number;
   category: string;
   description: string | null;
   brand_suggestion: string | null;
   is_required: boolean;
+  item_type?: string;
+  search_query?: string;
+  confidence_score?: number;
+  notes?: string;
 }
 
 interface AnalysisResult {
@@ -22,18 +27,77 @@ interface AnalysisResult {
   raw_text: string | null;
 }
 
-interface SSEMessage {
-  type: "progress" | "complete" | "error";
-  stage?: string;
-  progress?: number;
-  message?: string;
-  data?: AnalysisResult;
-  error?: string;
+// Robust prompt for material list extraction
+const SYSTEM_PROMPT = `Você é um sistema de IA especializado em normalização, classificação e padronização de listas de materiais escolares.
+
+Sua função é analisar listas escolares e classificar cada item de forma CONSISTENTE, comparável e reutilizável.
+
+⚠️ REGRAS ABSOLUTAS
+- NÃO inventar itens
+- NÃO excluir itens
+- NÃO fundir itens que não sejam semanticamente equivalentes
+- NÃO assumir marcas quando não explicitadas
+- NÃO simplificar regras condicionais
+- EXTRAIR TODOS os itens, mesmo que pareçam duplicados
+
+================================================
+PROCESSO OBRIGATÓRIO
+================================================
+
+1️⃣ EXTRAÇÃO
+- Identificar TODOS os itens da lista, linha por linha
+- Separar itens concretos (compráveis) de observações
+
+2️⃣ NORMALIZAÇÃO
+Para cada item:
+- name: Nome padronizado (ex: "Caderno 96 Folhas")
+- Unificar plural/singular
+- Manter especificações importantes (quantidade de folhas, cores, tamanho)
+
+3️⃣ CLASSIFICAÇÃO
+Classificar em UMA categoria:
+- escrita (lápis, canetas, borracha)
+- cadernos (cadernos, blocos)
+- papelaria (papel, envelopes, pastas)
+- artes (tintas, pincéis, massinha)
+- higiene (lenços, fraldas, toalhas)
+- uniforme (roupas, acessórios)
+- livros (livros, apostilas)
+- outros (mochilas, lancheiras, brinquedos)
+
+4️⃣ TIPO DE ITEM
+- is_required: true (obrigatório) ou false (opcional/condicional)
+
+5️⃣ QUANTIDADE
+- Extrair quantidade explícita do texto
+- Se ausente: quantity = 1
+
+================================================
+SAÍDA OBRIGATÓRIA (JSON)
+================================================
+
+{
+  "items": [
+    {
+      "name": "Nome Padronizado do Item",
+      "quantity": 1,
+      "category": "categoria",
+      "description": "descrição adicional ou null",
+      "brand_suggestion": "marca se mencionada ou null",
+      "is_required": true
+    }
+  ],
+  "school_name": "Nome da Escola ou null",
+  "grade": "Série ou null",
+  "year": 2025,
+  "raw_text": null
 }
 
-function createSSEMessage(msg: SSEMessage): string {
-  return `data: ${JSON.stringify(msg)}\n\n`;
-}
+IMPORTANTE:
+- Responda APENAS com JSON válido
+- NÃO use markdown, NÃO use \`\`\`json
+- O JSON deve ser parseável diretamente
+- Liste TODOS os itens encontrados, mesmo que sejam muitos`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -47,11 +111,10 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const { image_base64, image_url, file_type, use_sse } = await req.json() as { 
+    const { image_base64, image_url, file_type } = await req.json() as { 
       image_base64?: string; 
       image_url?: string;
       file_type?: string;
-      use_sse?: boolean;
     };
 
     if (!image_base64 && !image_url) {
@@ -61,237 +124,10 @@ serve(async (req) => {
       );
     }
 
-    // Se SSE está habilitado, usar streaming
-    if (use_sse) {
-      const stream = new TransformStream();
-      const writer = stream.writable.getWriter();
-      const encoder = new TextEncoder();
+    console.log("Analyzing material list...");
+    console.log(`File type: ${file_type}, Base64 length: ${image_base64?.length || 0}`);
 
-      // Processar em background
-      (async () => {
-        try {
-          // Etapa 1: Preparando imagem
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "preparing",
-            progress: 10,
-            message: "Preparando imagem para análise..."
-          })));
-
-          // Preparar a imagem para a API
-          let imageContent: { type: string; image_url: { url: string } };
-          
-          if (image_base64) {
-            const mimeType = file_type || "image/jpeg";
-            imageContent = {
-              type: "image_url",
-              image_url: {
-                url: `data:${mimeType};base64,${image_base64}`
-              }
-            };
-          } else {
-            imageContent = {
-              type: "image_url",
-              image_url: {
-                url: image_url!
-              }
-            };
-          }
-
-          // Etapa 2: Enviando para IA
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "sending",
-            progress: 25,
-            message: "Enviando para análise com IA..."
-          })));
-
-          console.log("Analyzing material list image with SSE...");
-
-          // Etapa 3: IA processando
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "analyzing",
-            progress: 40,
-            message: "IA analisando a lista de materiais..."
-          })));
-
-          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash",
-              messages: [
-                {
-                  role: "system",
-                  content: `Você é um especialista em extrair informações de listas de materiais escolares.
-Analise a imagem e extraia TODOS os itens de material escolar listados.
-
-Para cada item, identifique:
-1. Nome do item (padronizado, ex: "Caderno 96 folhas")
-2. Quantidade (número, default 1 se não especificado)
-3. Categoria: escolha entre "escrita", "cadernos", "papelaria", "artes", "higiene", "uniforme", "livros", "outros"
-4. Descrição adicional se houver (cor, tamanho específico, etc.)
-5. Sugestão de marca se mencionada
-6. Se é obrigatório (default true, false apenas se explicitamente indicado como opcional)
-
-Também extraia se possível:
-- Nome da escola
-- Série/ano escolar
-- Ano letivo
-
-IMPORTANTE: 
-- Leia TODO o texto da imagem
-- NÃO invente itens que não estão na lista
-- Se a imagem for um PDF ou documento, extraia todos os itens de todas as páginas visíveis
-- Padronize os nomes dos itens (ex: "Lapis de cor 12 cores" -> "Lápis de Cor 12 Cores")
-
-Responda APENAS com um JSON válido no seguinte formato:
-{
-  "items": [
-    {
-      "name": "Nome do Item",
-      "quantity": 1,
-      "category": "categoria",
-      "description": "descrição ou null",
-      "brand_suggestion": "marca ou null",
-      "is_required": true
-    }
-  ],
-  "school_name": "Nome da Escola ou null",
-  "grade": "Série ou null",
-  "year": 2025,
-  "raw_text": "Texto extraído da imagem"
-}`
-                },
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: "Analise esta lista de materiais escolares e extraia todos os itens com suas informações:"
-                    },
-                    imageContent
-                  ]
-                }
-              ],
-              temperature: 0.1,
-              max_tokens: 4096,
-            }),
-          });
-
-          // Etapa 4: Processando resposta
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "processing",
-            progress: 70,
-            message: "Processando resposta da IA..."
-          })));
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("AI API error:", response.status, errorText);
-            
-            let errorMessage = "Erro ao processar com IA";
-            if (response.status === 429) {
-              errorMessage = "Limite de requisições excedido. Tente novamente em alguns minutos.";
-            } else if (response.status === 402) {
-              errorMessage = "Créditos insuficientes. Adicione créditos ao workspace.";
-            }
-            
-            await writer.write(encoder.encode(createSSEMessage({
-              type: "error",
-              error: errorMessage
-            })));
-            await writer.close();
-            return;
-          }
-
-          const aiResult = await response.json();
-          const content = aiResult.choices?.[0]?.message?.content;
-          
-          if (!content) {
-            await writer.write(encoder.encode(createSSEMessage({
-              type: "error",
-              error: "Resposta vazia da IA"
-            })));
-            await writer.close();
-            return;
-          }
-
-          // Etapa 5: Extraindo itens
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "extracting",
-            progress: 85,
-            message: "Extraindo itens da lista..."
-          })));
-
-          console.log("AI response received, parsing...");
-
-          // Parse o JSON da resposta
-          let analysisResult: AnalysisResult;
-          try {
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              analysisResult = JSON.parse(jsonMatch[0]);
-            } else {
-              throw new Error("JSON não encontrado na resposta");
-            }
-          } catch (parseError) {
-            console.error("Error parsing AI response:", parseError);
-            await writer.write(encoder.encode(createSSEMessage({
-              type: "error",
-              error: "Erro ao processar resposta da IA"
-            })));
-            await writer.close();
-            return;
-          }
-
-          // Etapa 6: Concluído
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "progress",
-            stage: "complete",
-            progress: 100,
-            message: `${analysisResult.items?.length || 0} itens encontrados!`
-          })));
-
-          console.log(`Extracted ${analysisResult.items?.length || 0} items from the list`);
-
-          // Enviar resultado final
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "complete",
-            data: analysisResult
-          })));
-
-          await writer.close();
-        } catch (error) {
-          console.error("SSE Error:", error);
-          await writer.write(encoder.encode(createSSEMessage({
-            type: "error",
-            error: error instanceof Error ? error.message : "Erro desconhecido"
-          })));
-          await writer.close();
-        }
-      })();
-
-      return new Response(stream.readable, {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        },
-      });
-    }
-
-    // Fluxo tradicional (sem SSE)
-    console.log("Analyzing material list image...");
-
-    // Preparar a imagem para a API
+    // Prepare image content for the API
     let imageContent: { type: string; image_url: { url: string } };
     
     if (image_base64) {
@@ -311,7 +147,7 @@ Responda APENAS com um JSON válido no seguinte formato:
       };
     }
 
-    // Chamar a IA para analisar a imagem
+    // Call the AI to analyze the image
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -323,59 +159,21 @@ Responda APENAS com um JSON válido no seguinte formato:
         messages: [
           {
             role: "system",
-            content: `Você é um especialista em extrair informações de listas de materiais escolares.
-Analise a imagem e extraia TODOS os itens de material escolar listados.
-
-Para cada item, identifique:
-1. Nome do item (padronizado, ex: "Caderno 96 folhas")
-2. Quantidade (número, default 1 se não especificado)
-3. Categoria: escolha entre "escrita", "cadernos", "papelaria", "artes", "higiene", "uniforme", "livros", "outros"
-4. Descrição adicional se houver (cor, tamanho específico, etc.)
-5. Sugestão de marca se mencionada
-6. Se é obrigatório (default true, false apenas se explicitamente indicado como opcional)
-
-Também extraia se possível:
-- Nome da escola
-- Série/ano escolar
-- Ano letivo
-
-IMPORTANTE: 
-- Leia TODO o texto da imagem
-- NÃO invente itens que não estão na lista
-- Se a imagem for um PDF ou documento, extraia todos os itens de todas as páginas visíveis
-- Padronize os nomes dos itens (ex: "Lapis de cor 12 cores" -> "Lápis de Cor 12 Cores")
-
-Responda APENAS com um JSON válido no seguinte formato:
-{
-  "items": [
-    {
-      "name": "Nome do Item",
-      "quantity": 1,
-      "category": "categoria",
-      "description": "descrição ou null",
-      "brand_suggestion": "marca ou null",
-      "is_required": true
-    }
-  ],
-  "school_name": "Nome da Escola ou null",
-  "grade": "Série ou null",
-  "year": 2025,
-  "raw_text": "Texto extraído da imagem"
-}`
+            content: SYSTEM_PROMPT
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: "Analise esta lista de materiais escolares e extraia todos os itens com suas informações:"
+                text: "Analise esta lista de materiais escolares e extraia TODOS os itens. Retorne APENAS JSON válido, sem markdown."
               },
               imageContent
             ]
           }
         ],
         temperature: 0.1,
-        max_tokens: 4096,
+        max_tokens: 16384, // Increased for larger lists
       }),
     });
 
@@ -408,24 +206,85 @@ Responda APENAS com um JSON válido no seguinte formato:
     }
 
     console.log("AI response received, parsing...");
+    console.log("Content length:", content.length);
+    console.log("Content preview:", content.substring(0, 500));
 
-    // Parse o JSON da resposta
+    // Parse the JSON response with multiple strategies
     let analysisResult: AnalysisResult;
     try {
-      // Tentar extrair JSON do conteúdo (pode vir com markdown)
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
+      // Strategy 1: Try direct parse (if response is clean JSON)
+      const cleanContent = content.trim();
+      if (cleanContent.startsWith("{")) {
+        try {
+          analysisResult = JSON.parse(cleanContent);
+        } catch {
+          // Strategy 2: Try to extract JSON from markdown code block
+          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (jsonMatch) {
+            analysisResult = JSON.parse(jsonMatch[1].trim());
+          } else {
+            // Strategy 3: Find JSON object pattern
+            const objectMatch = content.match(/\{[\s\S]*"items"[\s\S]*\}/);
+            if (objectMatch) {
+              // Try to fix common JSON issues
+              let jsonStr = objectMatch[0];
+              // Remove trailing commas before } or ]
+              jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+              analysisResult = JSON.parse(jsonStr);
+            } else {
+              throw new Error("JSON não encontrado na resposta");
+            }
+          }
+        }
       } else {
-        throw new Error("JSON não encontrado na resposta");
+        // Content doesn't start with {, try extraction methods
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) {
+          analysisResult = JSON.parse(jsonMatch[1].trim());
+        } else {
+          const objectMatch = content.match(/\{[\s\S]*"items"[\s\S]*\}/);
+          if (objectMatch) {
+            let jsonStr = objectMatch[0];
+            jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+            analysisResult = JSON.parse(jsonStr);
+          } else {
+            throw new Error("JSON não encontrado na resposta");
+          }
+        }
       }
+
+      // Validate the result structure
+      if (!analysisResult.items || !Array.isArray(analysisResult.items)) {
+        console.error("Invalid structure - missing items array");
+        analysisResult = {
+          items: [],
+          school_name: null,
+          grade: null,
+          year: null,
+          raw_text: content
+        };
+      }
+
     } catch (parseError) {
       console.error("Error parsing AI response:", parseError);
-      console.error("Raw content:", content);
-      throw new Error("Erro ao processar resposta da IA");
+      console.error("Raw content (first 2000 chars):", content.substring(0, 2000));
+      
+      // Return empty result with raw content for manual processing
+      return new Response(
+        JSON.stringify({ 
+          items: [],
+          school_name: null,
+          grade: null,
+          year: null,
+          raw_text: content,
+          parse_error: true,
+          error_message: "Não foi possível processar a resposta da IA. Use entrada manual."
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    console.log(`Extracted ${analysisResult.items?.length || 0} items from the list`);
+    console.log(`Successfully extracted ${analysisResult.items?.length || 0} items`);
 
     return new Response(
       JSON.stringify(analysisResult),
@@ -435,7 +294,11 @@ Responda APENAS com um JSON válido no seguinte formato:
   } catch (error) {
     console.error("Error analyzing material list:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Erro desconhecido" }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Erro desconhecido",
+        items: [],
+        parse_error: true
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -110,30 +110,54 @@ async function fetchCepData(cep: string): Promise<ViaCepResponse | null> {
   }
 }
 
-async function processWithAI(schools: RawSchool[], apiKey: string): Promise<{ processed: ProcessedSchool[]; errors: string[] }> {
-  const processed: ProcessedSchool[] = [];
-  const errors: string[] = [];
+// Função para processar em paralelo com controle de concorrência
+async function processInParallel<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = [];
+  let currentIndex = 0;
   
-  // Processar em batches de 50 para a IA
-  const batchSize = 50;
+  async function worker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      const item = items[index];
+      try {
+        const result = await processor(item);
+        results[index] = result;
+      } catch (error) {
+        console.error(`Error processing item ${index}:`, error);
+        results[index] = null as unknown as R;
+      }
+    }
+  }
   
-  for (let i = 0; i < schools.length; i += batchSize) {
-    const batch = schools.slice(i, i + batchSize);
-    
-    try {
-      // Chamar a IA para padronizar e categorizar
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            {
-              role: "system",
-              content: `Você é um assistente especializado em processar dados de escolas brasileiras.
+  // Criar workers em paralelo
+  const workers = Array(Math.min(concurrency, items.length)).fill(null).map(() => worker());
+  await Promise.all(workers);
+  
+  return results;
+}
+
+// Processar um batch de escolas com IA
+async function processAIBatch(
+  batch: RawSchool[],
+  apiKey: string
+): Promise<{ name?: string; school_type?: string; education_level?: string; email?: string }[]> {
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          {
+            role: "system",
+            content: `Você é um assistente especializado em processar dados de escolas brasileiras.
 Sua tarefa é padronizar, corrigir erros e categorizar os dados das escolas.
 
 Para cada escola, você deve:
@@ -144,67 +168,86 @@ Para cada escola, você deve:
 
 Responda APENAS com um array JSON válido, sem markdown ou texto adicional.
 Cada objeto deve ter: name (corrigido), school_type, education_level, email (corrigido ou null)`
-            },
-            {
-              role: "user",
-              content: JSON.stringify(batch.map(s => ({
-                name: s.name || "",
-                email: s.email || null,
-                tipo: s.tipo || s.type || null,
-                nivel: s.nivel || s.level || null
-              })))
-            }
-          ],
-          temperature: 0.1,
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("AI API error:", response.status, errorText);
-        
-        // Fallback: processar sem IA
-        for (const school of batch) {
-          const result = await processSchoolBasic(school);
-          if (result) {
-            processed.push(result);
-          } else {
-            errors.push(`Erro ao processar: ${school.name || "escola sem nome"}`);
+          },
+          {
+            role: "user",
+            content: JSON.stringify(batch.map(s => ({
+              name: s.name || "",
+              email: s.email || null,
+              tipo: s.tipo || s.type || null,
+              nivel: s.nivel || s.level || null
+            })))
           }
-        }
-        continue;
-      }
-      
-      const aiResult = await response.json();
-      const aiProcessed = JSON.parse(aiResult.choices[0].message.content);
-      
-      // Combinar dados da IA com enriquecimento via CEP
-      for (let j = 0; j < batch.length; j++) {
-        const school = batch[j];
-        const aiData = aiProcessed[j] || {};
-        
-        const result = await processSchoolWithAI(school, aiData);
-        if (result) {
-          processed.push(result);
-        } else {
-          errors.push(`Erro ao processar: ${school.name || "escola sem nome"}`);
-        }
-      }
-      
-    } catch (error) {
-      console.error("Error processing batch:", error);
-      
-      // Fallback: processar sem IA
-      for (const school of batch) {
-        const result = await processSchoolBasic(school);
-        if (result) {
-          processed.push(result);
-        } else {
-          errors.push(`Erro ao processar: ${school.name || "escola sem nome"}`);
-        }
-      }
+        ],
+        temperature: 0.1,
+      }),
+    });
+    
+    if (!response.ok) {
+      console.error("AI API error:", response.status);
+      return batch.map(() => ({}));
+    }
+    
+    const aiResult = await response.json();
+    return JSON.parse(aiResult.choices[0].message.content);
+  } catch (error) {
+    console.error("Error processing AI batch:", error);
+    return batch.map(() => ({}));
+  }
+}
+
+async function processWithAI(schools: RawSchool[], apiKey: string): Promise<{ processed: ProcessedSchool[]; errors: string[] }> {
+  const processed: ProcessedSchool[] = [];
+  const errors: string[] = [];
+  
+  // Criar batches de 50 para IA
+  const batchSize = 50;
+  const batches: RawSchool[][] = [];
+  
+  for (let i = 0; i < schools.length; i += batchSize) {
+    batches.push(schools.slice(i, i + batchSize));
+  }
+  
+  console.log(`Processing ${schools.length} schools in ${batches.length} AI batches with concurrency 5...`);
+  
+  // Processar batches de IA em paralelo (5 simultâneos)
+  const aiBatchResults = await processInParallel(
+    batches,
+    async (batch) => processAIBatch(batch, apiKey),
+    5
+  );
+  
+  console.log(`AI processing complete. Enriching with CEP data...`);
+  
+  // Flatten os resultados da IA
+  const aiResults: { name?: string; school_type?: string; education_level?: string; email?: string }[] = [];
+  aiBatchResults.forEach(batchResult => {
+    if (batchResult) {
+      aiResults.push(...batchResult);
+    }
+  });
+  
+  // Processar cada escola com enriquecimento de CEP
+  let processedCount = 0;
+  for (let i = 0; i < schools.length; i++) {
+    const school = schools[i];
+    const aiData = aiResults[i] || {};
+    
+    const result = await processSchoolWithAI(school, aiData);
+    if (result) {
+      processed.push(result);
+      processedCount++;
+    } else {
+      errors.push(`Erro ao processar: ${school.name || "escola sem nome"}`);
+    }
+    
+    // Log de progresso a cada 1000 escolas
+    if (processedCount % 1000 === 0) {
+      console.log(`Processed ${processedCount}/${schools.length} schools...`);
     }
   }
+  
+  console.log(`Finished processing ${processed.length} schools, ${errors.length} errors`);
   
   return { processed, errors };
 }
@@ -334,7 +377,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processing ${schools.length} schools...`);
+    console.log(`Received ${schools.length} schools to process. insertToDb: ${insertToDb}`);
     
     // Processar escolas com IA e enriquecimento
     const { processed, errors } = await processWithAI(schools, LOVABLE_API_KEY);
@@ -345,6 +388,8 @@ serve(async (req) => {
     let insertErrors: string[] = [];
 
     if (insertToDb && processed.length > 0) {
+      console.log(`Inserting ${processed.length} schools into database...`);
+      
       // Inserir em batches de 100
       const insertBatchSize = 100;
       
@@ -408,7 +453,14 @@ serve(async (req) => {
         } else {
           inserted += batch.length;
         }
+        
+        // Log de progresso a cada 1000 inserções
+        if (inserted % 1000 === 0 && inserted > 0) {
+          console.log(`Inserted ${inserted}/${processed.length} schools...`);
+        }
       }
+      
+      console.log(`Finished inserting. Total: ${inserted}, Errors: ${insertErrors.length}`);
     }
 
     return new Response(

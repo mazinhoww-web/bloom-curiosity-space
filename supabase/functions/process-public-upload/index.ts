@@ -46,7 +46,16 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const { uploaded_list_id } = await req.json();
+    const body = await req.json();
+    const { 
+      uploaded_list_id, 
+      file_path: directFilePath, 
+      file_name: directFileName,
+      file_type: directFileType,
+      is_multi_page,
+      page_number,
+      total_pages 
+    } = body;
 
     if (!uploaded_list_id) {
       return new Response(
@@ -55,7 +64,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`[process-public-upload] Processing upload: ${uploaded_list_id}`);
+    console.log(`[process-public-upload] Processing upload: ${uploaded_list_id}, page: ${page_number || 1}/${total_pages || 1}`);
 
     // Fetch the uploaded list
     const { data: uploadedList, error: fetchError } = await supabase
@@ -71,6 +80,11 @@ Deno.serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Use direct file path if provided (for multi-page), otherwise use from uploaded list
+    const filePath = directFilePath || uploadedList.file_path;
+    const fileName = directFileName || uploadedList.file_name;
+    const fileType = directFileType || uploadedList.file_type;
 
     // Update status to processing
     await supabase
@@ -93,7 +107,7 @@ Deno.serve(async (req) => {
     const { data: fileData, error: downloadError } = await supabase
       .storage
       .from('list-uploads')
-      .download(uploadedList.file_path);
+      .download(filePath);
 
     if (downloadError || !fileData) {
       console.error('[process-public-upload] Failed to download file:', downloadError);
@@ -152,8 +166,8 @@ Deno.serve(async (req) => {
         'doc': 'application/msword',
         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       };
-      const fileExt = uploadedList.file_name.split('.').pop()?.toLowerCase() || '';
-      const mimeType = mimeTypeMap[fileExt] || uploadedList.file_type;
+      const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+      const mimeType = mimeTypeMap[fileExt] || fileType;
 
       // Call the existing analyze-material-list function
       console.log(`[process-public-upload] Calling AI analysis, file type: ${mimeType}, base64 length: ${base64.length}`);

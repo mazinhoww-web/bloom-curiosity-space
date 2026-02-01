@@ -8,12 +8,12 @@ import { Progress } from "@/components/ui/progress";
 import { ContributeIntro } from "@/components/upload/ContributeIntro";
 import { SchoolSelectStep } from "@/components/upload/SchoolSelectStep";
 import { InputMethodSelector } from "@/components/upload/InputMethodSelector";
-import { FileUploadStep } from "@/components/upload/FileUploadStep";
+import { MultiFileUploadStep } from "@/components/upload/MultiFileUploadStep";
 import { ManualEntryStep } from "@/components/upload/ManualEntryStep";
-import { ProcessingStep } from "@/components/upload/ProcessingStep";
+import { MultiPageProcessingStep } from "@/components/upload/MultiPageProcessingStep";
 import { ConfirmationStep } from "@/components/upload/ConfirmationStep";
 import { ThankYouStep } from "@/components/upload/ThankYouStep";
-import { usePublicUpload, ExtractedItem } from "@/hooks/use-public-upload";
+import { useMultiFileUpload, ExtractedItem } from "@/hooks/use-multi-file-upload";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -98,7 +98,7 @@ export default function UploadList() {
   const [selectedSchool, setSelectedSchool] = useState<SelectedSchool | null>(null);
   const [customSchoolName, setCustomSchoolName] = useState<string | null>(null);
   const [inputMethod, setInputMethod] = useState<InputMethod | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedGradeId, setSelectedGradeId] = useState<string | null>(null);
   const [manualItems, setManualItems] = useState<ExtractedItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -124,19 +124,20 @@ export default function UploadList() {
     setCurrentStep(newStep);
   }, [currentStep]);
 
-  // Upload hook
+  // Upload hook (multi-file)
   const {
-    uploadFile,
-    processUpload,
+    uploadAndProcessFiles,
     updateItems,
     publishList,
     reset,
     uploadedList,
+    combinedItems,
+    processingState,
     isUploading,
     isProcessing,
     isPublishing,
     error,
-  } = usePublicUpload();
+  } = useMultiFileUpload();
 
   // Fetch grade name
   const { data: grades } = useQuery({
@@ -177,30 +178,22 @@ export default function UploadList() {
   }, [goToStep]);
 
   const handleProcess = useCallback(async () => {
-    if (!selectedFile || !selectedGradeId) return;
+    if (selectedFiles.length === 0 || !selectedGradeId) return;
 
     try {
       setUploadProgress(0);
-      const progressInterval = setInterval(() => {
-        setUploadProgress((p) => Math.min(p + 10, 90));
-      }, 200);
+      goToStep("processing");
 
-      const upload = await uploadFile(
-        selectedFile,
+      await uploadAndProcessFiles(
+        selectedFiles,
         selectedSchool?.id || null,
         customSchoolName,
         selectedGradeId
       );
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-      goToStep("processing");
-
-      await processUpload(upload.id);
     } catch (err) {
       console.error("Upload/process error:", err);
     }
-  }, [selectedFile, selectedGradeId, selectedSchool, customSchoolName, uploadFile, processUpload, goToStep]);
+  }, [selectedFiles, selectedGradeId, selectedSchool, customSchoolName, uploadAndProcessFiles, goToStep]);
 
   const handleManualFinish = useCallback(() => {
     if (manualItems.length > 0) {
@@ -219,17 +212,19 @@ export default function UploadList() {
   const handlePublish = useCallback(async () => {
     const itemsToPublish = inputMethod === "manual" 
       ? manualItems 
-      : uploadedList?.extracted_items || [];
+      : combinedItems || [];
 
     if (itemsToPublish.length === 0) return;
 
     try {
       if (inputMethod === "manual" && selectedGradeId) {
+        // For manual entry, we need to create a simple upload first
         const blob = new Blob([JSON.stringify(itemsToPublish)], { type: "application/json" });
         const file = new File([blob], "manual-entry.json", { type: "application/json" });
         
-        const upload = await uploadFile(
-          file,
+        // Use the multi-file upload to create the record and then publish
+        await uploadAndProcessFiles(
+          [file],
           selectedSchool?.id || null,
           customSchoolName,
           selectedGradeId
@@ -258,7 +253,7 @@ export default function UploadList() {
     } catch (err) {
       console.error("Publish error:", err);
     }
-  }, [inputMethod, manualItems, uploadedList, publishList, selectedSchool, customSchoolName, selectedGradeId, uploadFile, updateItems, schoolDisplayName, selectedGradeName, goToStep]);
+  }, [inputMethod, manualItems, combinedItems, uploadedList, publishList, selectedSchool, customSchoolName, selectedGradeId, uploadAndProcessFiles, updateItems, schoolDisplayName, selectedGradeName, goToStep]);
 
   const handleReset = useCallback(() => {
     reset();
@@ -267,7 +262,7 @@ export default function UploadList() {
     setSelectedSchool(null);
     setCustomSchoolName(null);
     setInputMethod(null);
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setSelectedGradeId(null);
     setManualItems([]);
     setUploadProgress(0);
@@ -305,14 +300,14 @@ export default function UploadList() {
 
   // Auto-advance from processing to confirmation (only if items were extracted)
   useEffect(() => {
-    if (currentStep === "processing" && uploadedList?.status === "completed") {
-      const items = uploadedList?.extracted_items || [];
+    if (currentStep === "processing" && processingState.status === "completed") {
+      const items = combinedItems || [];
       if (items.length > 0) {
         setTimeout(() => goToStep("confirmation"), 500);
       }
       // If no items, stay on processing step to show fallback option
     }
-  }, [currentStep, uploadedList?.status, uploadedList?.extracted_items, goToStep]);
+  }, [currentStep, processingState.status, combinedItems, goToStep]);
 
   const showProgressBar = currentStep !== "intro" && currentStep !== "thank-you";
   const showBackButton = ["school", "input-method", "upload", "manual"].includes(currentStep);
@@ -321,7 +316,7 @@ export default function UploadList() {
     if (inputMethod === "manual") {
       return manualItems;
     }
-    return uploadedList?.extracted_items || [];
+    return combinedItems || [];
   };
 
   return (
@@ -427,7 +422,7 @@ export default function UploadList() {
                   </motion.div>
                 )}
 
-                {/* File Upload */}
+                {/* File Upload (Multi-file) */}
                 {currentStep === "upload" && inputMethod && (
                   <motion.div
                     key="upload"
@@ -438,11 +433,11 @@ export default function UploadList() {
                     exit="exit"
                     transition={{ duration: 0.3, ease: "easeInOut" }}
                   >
-                    <FileUploadStep
-                      file={selectedFile}
+                    <MultiFileUploadStep
+                      files={selectedFiles}
                       gradeId={selectedGradeId}
                       inputMethod={inputMethod === "camera" ? "camera" : "upload"}
-                      onFileSelect={setSelectedFile}
+                      onFilesSelect={setSelectedFiles}
                       onGradeSelect={setSelectedGradeId}
                       onProcess={handleProcess}
                       onBack={handleBack}
@@ -497,7 +492,7 @@ export default function UploadList() {
                   </motion.div>
                 )}
 
-                {/* Processing */}
+                {/* Processing (Multi-page) */}
                 {currentStep === "processing" && (
                   <motion.div
                     key="processing"
@@ -508,11 +503,9 @@ export default function UploadList() {
                     exit="exit"
                     transition={{ duration: 0.4, ease: "easeInOut" }}
                   >
-                    <ProcessingStep
-                      progress={uploadedList?.processing_progress || 0}
-                      message={uploadedList?.processing_message || null}
-                      status={uploadedList?.status || "processing"}
-                      extractedItemsCount={(uploadedList?.extracted_items || []).length}
+                    <MultiPageProcessingStep
+                      processingState={processingState}
+                      extractedItemsCount={combinedItems.length}
                       onManualEntry={handleManualFallback}
                     />
                   </motion.div>

@@ -12,6 +12,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, Navigation } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -117,6 +118,12 @@ export default function Schools() {
     <MainLayout>
       <section className="bg-muted/30 py-12">
         <div className="container">
+          {/* Breadcrumbs */}
+          <Breadcrumbs 
+            items={[{ label: "Buscar Escolas" }]} 
+            className="mb-6"
+          />
+          
           <div className="mx-auto max-w-2xl text-center">
             <h1 className="mb-4 font-display text-3xl font-bold text-foreground md:text-4xl">
               Encontre sua escola

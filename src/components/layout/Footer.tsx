@@ -25,7 +25,7 @@
  *    - /admin/analytics - Métricas e relatórios
  */
 
-import { BookOpen, Heart, Users, Building2, Store, Shield } from "lucide-react";
+import { BookOpen, Heart, Users, Building2, Store, Tag } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export function Footer() {
@@ -100,11 +100,11 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Para Parceiros + Admin */}
+          {/* Para Lojas + Marcas */}
           <div>
             <h4 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
               <Store className="h-4 w-4 text-accent" />
-              Para Parceiros
+              Para Lojas
             </h4>
             <ul className="space-y-2 text-sm">
               <li>
@@ -115,13 +115,13 @@ export function Footer() {
             </ul>
 
             <h4 className="mb-4 mt-6 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Shield className="h-4 w-4 text-muted-foreground" />
-              Admin
+              <Tag className="h-4 w-4 text-primary" />
+              Para Marcas
             </h4>
             <ul className="space-y-2 text-sm">
               <li>
-                <Link to="/admin" className="text-muted-foreground transition-colors hover:text-primary">
-                  Painel Admin
+                <Link to="/parceiros?tipo=marca" className="text-muted-foreground transition-colors hover:text-primary">
+                  Aumente Visibilidade
                 </Link>
               </li>
             </ul>

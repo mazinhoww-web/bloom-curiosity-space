@@ -7,116 +7,82 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-interface TopSchool {
+interface CachedSchool {
   school_id: string;
   school_name: string;
+  slug: string;
   city: string | null;
   state: string | null;
   total_views: number;
   total_list_views: number;
+  rank_position: number;
 }
 
-interface TopList {
+interface CachedList {
   list_id: string;
   school_id: string;
   school_name: string;
+  school_slug: string;
+  grade_id: string;
   grade_name: string;
   total_views: number;
+  rank_position: number;
 }
 
 export function PopularSchoolsSection() {
-  // Fetch top schools from analytics view
-  const { data: topSchools, isLoading: isLoadingSchools } = useQuery({
-    queryKey: ["top-schools-home"],
+  // Fetch from cache table - instant response
+  const { data: topSchools, isLoading: isLoadingSchools, error: schoolsError } = useQuery({
+    queryKey: ["popular-schools-cache"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("analytics_top_schools")
-        .select("school_id, school_name, city, state, total_views, total_list_views")
-        .order("total_views", { ascending: false })
+        .from("popular_schools_cache")
+        .select("school_id, school_name, slug, city, state, total_views, total_list_views, rank_position")
+        .order("rank_position", { ascending: true })
         .limit(6);
       
-      if (error) throw error;
-      return data as TopSchool[];
+      if (error) {
+        console.error("Error fetching popular schools:", error);
+        throw error;
+      }
+      return data as CachedSchool[];
     },
-    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    staleTime: 1000 * 60 * 10, // Cache for 10 minutes
+    retry: 1,
   });
 
-  // Fetch schools with slugs for linking
-  const schoolIds = topSchools?.map(s => s.school_id) || [];
-  const { data: schoolSlugs } = useQuery({
-    queryKey: ["school-slugs", schoolIds],
+  // Fetch from cache table - instant response
+  const { data: topLists, isLoading: isLoadingLists, error: listsError } = useQuery({
+    queryKey: ["popular-lists-cache"],
     queryFn: async () => {
-      if (schoolIds.length === 0) return {};
       const { data, error } = await supabase
-        .from("schools")
-        .select("id, slug")
-        .in("id", schoolIds);
+        .from("popular_lists_cache")
+        .select("list_id, school_id, school_name, school_slug, grade_id, grade_name, total_views, rank_position")
+        .order("rank_position", { ascending: true })
+        .limit(4);
       
-      if (error) throw error;
-      return Object.fromEntries((data || []).map(s => [s.id, s.slug]));
+      if (error) {
+        console.error("Error fetching popular lists:", error);
+        throw error;
+      }
+      return data as CachedList[];
     },
-    enabled: schoolIds.length > 0,
+    staleTime: 1000 * 60 * 10, // Cache for 10 minutes
+    retry: 1,
   });
 
-  // Fetch top lists
-  const { data: topLists, isLoading: isLoadingLists } = useQuery({
-    queryKey: ["top-lists-home"],
-    queryFn: async () => {
-      // Get list view events aggregated
-      const { data, error } = await supabase
-        .from("list_view_events")
-        .select(`
-          list_id,
-          school_id,
-          grade_id
-        `)
-        .limit(1000);
-      
-      if (error) throw error;
-      
-      // Count views per list
-      const listCounts: Record<string, { list_id: string; school_id: string; grade_id: string; count: number }> = {};
-      (data || []).forEach(event => {
-        const key = event.list_id;
-        if (!listCounts[key]) {
-          listCounts[key] = { ...event, count: 0 };
-        }
-        listCounts[key].count++;
-      });
-      
-      // Sort and take top 4
-      return Object.values(listCounts)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 4);
-    },
-    staleTime: 1000 * 60 * 5,
-  });
+  const hasSchools = topSchools && topSchools.length > 0;
+  const hasLists = topLists && topLists.length > 0;
+  const hasData = hasSchools || hasLists;
+  const isLoading = isLoadingSchools || isLoadingLists;
+  const hasError = schoolsError || listsError;
 
-  // Fetch school and grade names for top lists
-  const listSchoolIds = topLists?.map(l => l.school_id) || [];
-  const listGradeIds = topLists?.map(l => l.grade_id) || [];
-  
-  const { data: listDetails } = useQuery({
-    queryKey: ["list-details-home", listSchoolIds, listGradeIds],
-    queryFn: async () => {
-      if (listSchoolIds.length === 0) return { schools: {}, grades: {} };
-      
-      const [schoolsRes, gradesRes] = await Promise.all([
-        supabase.from("schools").select("id, name, slug").in("id", listSchoolIds),
-        supabase.from("grades").select("id, name").in("id", listGradeIds),
-      ]);
-      
-      return {
-        schools: Object.fromEntries((schoolsRes.data || []).map(s => [s.id, s])),
-        grades: Object.fromEntries((gradesRes.data || []).map(g => [g.id, g.name])),
-      };
-    },
-    enabled: listSchoolIds.length > 0,
-  });
+  // Don't render section if no data and not loading
+  if (!hasData && !isLoading && !hasError) {
+    return null;
+  }
 
-  const hasData = (topSchools && topSchools.length > 0) || (topLists && topLists.length > 0);
-
-  if (!hasData && !isLoadingSchools && !isLoadingLists) {
+  // If errors, silently hide the section
+  if (hasError && !hasData) {
     return null;
   }
 
@@ -149,12 +115,12 @@ export function PopularSchoolsSection() {
                 <Skeleton key={i} className="h-32 rounded-xl" />
               ))}
             </div>
-          ) : topSchools && topSchools.length > 0 ? (
+          ) : hasSchools ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {topSchools.map((school, index) => (
+              {topSchools.map((school) => (
                 <Link 
                   key={school.school_id} 
-                  to={`/escola/${schoolSlugs?.[school.school_id] || school.school_id}`}
+                  to={`/escola/${school.slug}`}
                 >
                   <Card className="group h-full transition-all hover:border-primary hover:shadow-lg">
                     <CardContent className="flex h-full flex-col p-4">
@@ -162,9 +128,9 @@ export function PopularSchoolsSection() {
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                           <School className="h-5 w-5" />
                         </div>
-                        {index < 3 && (
+                        {school.rank_position <= 3 && (
                           <Badge variant="secondary" className="text-xs">
-                            #{index + 1}
+                            #{school.rank_position}
                           </Badge>
                         )}
                       </div>
@@ -201,7 +167,7 @@ export function PopularSchoolsSection() {
         </div>
 
         {/* Top Lists */}
-        {topLists && topLists.length > 0 && listDetails && (
+        {hasLists && (
           <div className="mb-8">
             <h3 className="mb-6 flex items-center gap-2 font-display text-xl font-semibold">
               <FileText className="h-5 w-5 text-secondary" />
@@ -209,44 +175,37 @@ export function PopularSchoolsSection() {
             </h3>
             
             <div className="grid gap-4 sm:grid-cols-2">
-              {topLists.map((list, index) => {
-                const school = listDetails.schools[list.school_id];
-                const gradeName = listDetails.grades[list.grade_id];
-                
-                if (!school) return null;
-                
-                return (
-                  <Link 
-                    key={list.list_id} 
-                    to={`/escola/${school.slug}?grade=${list.grade_id}`}
-                  >
-                    <Card className="group transition-all hover:border-secondary hover:shadow-lg">
-                      <CardContent className="flex items-center gap-4 p-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary/10 text-secondary group-hover:bg-secondary group-hover:text-secondary-foreground transition-colors">
-                          <FileText className="h-6 w-6" />
+              {topLists.map((list) => (
+                <Link 
+                  key={list.list_id} 
+                  to={`/escola/${list.school_slug}?grade=${list.grade_id}`}
+                >
+                  <Card className="group transition-all hover:border-secondary hover:shadow-lg">
+                    <CardContent className="flex items-center gap-4 p-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary/10 text-secondary group-hover:bg-secondary group-hover:text-secondary-foreground transition-colors">
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-display font-semibold text-foreground line-clamp-1 group-hover:text-secondary transition-colors">
+                          {list.school_name}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {list.grade_name || "Lista de materiais"}
+                        </p>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                          <Eye className="h-3 w-3" />
+                          {list.total_views?.toLocaleString() || 0} visualizações
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-display font-semibold text-foreground line-clamp-1 group-hover:text-secondary transition-colors">
-                            {school.name}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {gradeName || "Lista de materiais"}
-                          </p>
-                          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                            <Eye className="h-3 w-3" />
-                            {list.count?.toLocaleString() || 0} visualizações
-                          </div>
-                        </div>
-                        {index < 2 && (
-                          <Badge variant="outline" className="shrink-0">
-                            #{index + 1}
-                          </Badge>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Link>
-                );
-              })}
+                      </div>
+                      {list.rank_position <= 2 && (
+                        <Badge variant="outline" className="shrink-0">
+                          #{list.rank_position}
+                        </Badge>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
             </div>
           </div>
         )}

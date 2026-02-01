@@ -531,6 +531,135 @@ export type Database = {
         }
         Relationships: []
       }
+      popular_lists_cache: {
+        Row: {
+          grade_id: string
+          grade_name: string
+          id: string
+          list_id: string
+          rank_position: number
+          school_id: string
+          school_name: string
+          school_slug: string
+          total_views: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          grade_id: string
+          grade_name: string
+          id?: string
+          list_id: string
+          rank_position: number
+          school_id: string
+          school_name: string
+          school_slug: string
+          total_views?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          grade_id?: string
+          grade_name?: string
+          id?: string
+          list_id?: string
+          rank_position?: number
+          school_id?: string
+          school_name?: string
+          school_slug?: string
+          total_views?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "popular_lists_cache_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_grades"
+            referencedColumns: ["grade_id"]
+          },
+          {
+            foreignKeyName: "popular_lists_cache_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
+            referencedRelation: "grades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "popular_lists_cache_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "popular_lists_cache_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "popular_lists_cache_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      popular_schools_cache: {
+        Row: {
+          city: string | null
+          id: string
+          rank_position: number
+          school_id: string
+          school_name: string
+          slug: string
+          state: string | null
+          total_list_views: number | null
+          total_views: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          city?: string | null
+          id?: string
+          rank_position: number
+          school_id: string
+          school_name: string
+          slug: string
+          state?: string | null
+          total_list_views?: number | null
+          total_views?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          city?: string | null
+          id?: string
+          rank_position?: number
+          school_id?: string
+          school_name?: string
+          slug?: string
+          state?: string | null
+          total_list_views?: number | null
+          total_views?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "popular_schools_cache_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "popular_schools_cache_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchase_events: {
         Row: {
           clicked_at: string
@@ -1315,6 +1444,9 @@ export type Database = {
         Args: { _list_id: string; _user_id: string }
         Returns: boolean
       }
+      refresh_popular_content_cache: { Args: never; Returns: undefined }
+      refresh_popular_lists_cache: { Args: never; Returns: undefined }
+      refresh_popular_schools_cache: { Args: never; Returns: undefined }
       reject_claim_request: {
         Args: { p_reason?: string; p_request_id: string }
         Returns: boolean

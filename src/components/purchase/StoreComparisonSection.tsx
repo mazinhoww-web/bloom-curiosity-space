@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Store, ExternalLink, ShoppingCart, ChevronDown, ChevronUp, Package } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Store, ExternalLink, ShoppingCart, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useStoreCarts, useStoreCartActions } from "@/hooks/use-store-carts";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 interface StoreComparisonSectionProps {
   listId: string | null | undefined;
@@ -19,7 +20,18 @@ interface StoreComparisonSectionProps {
 export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSectionProps) {
   const { storeCarts, totalItems, isLoading, error } = useStoreCarts(listId);
   const { openAllItemsInStore, openSingleItem, isOpening } = useStoreCartActions();
+  const { trackStoreCartView } = useAnalytics();
   const [expandedStore, setExpandedStore] = useState<string | null>(null);
+  const [hasTrackedView, setHasTrackedView] = useState(false);
+
+  // Track store cart view when stores are loaded and visible
+  useEffect(() => {
+    if (!hasTrackedView && storeCarts.length > 0 && listId && schoolId) {
+      const storeIds = storeCarts.map(sc => sc.store_id);
+      trackStoreCartView(listId, schoolId, storeIds);
+      setHasTrackedView(true);
+    }
+  }, [storeCarts, listId, schoolId, trackStoreCartView, hasTrackedView]);
 
   if (isLoading) {
     return (

@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CheckCircle2, Share2, Copy, ExternalLink, Store, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { usePartnerStores } from "@/hooks/use-partner-stores";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 interface SuccessStepProps {
   schoolSlug: string | null;
   schoolName: string;
   gradeName: string;
   itemsCount: number;
+  uploadedListId?: string;
   onReset: () => void;
 }
 
@@ -19,11 +21,24 @@ export function SuccessStep({
   schoolName,
   gradeName,
   itemsCount,
+  uploadedListId,
   onReset,
 }: SuccessStepProps) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const { stores } = usePartnerStores();
+  const { trackUploadCompleted } = useAnalytics();
+
+  // Track upload completed event
+  useEffect(() => {
+    if (uploadedListId) {
+      trackUploadCompleted(uploadedListId, {
+        school_name: schoolName,
+        grade_name: gradeName,
+        items_count: itemsCount,
+      });
+    }
+  }, [uploadedListId, schoolName, gradeName, itemsCount, trackUploadCompleted]);
 
   const publicUrl = schoolSlug
     ? `${window.location.origin}/escola/${schoolSlug}`

@@ -211,6 +211,13 @@ export type Database = {
             foreignKeyName: "list_view_events_grade_id_fkey"
             columns: ["grade_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_grades"
+            referencedColumns: ["grade_id"]
+          },
+          {
+            foreignKeyName: "list_view_events_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
             referencedRelation: "grades"
             referencedColumns: ["id"]
           },
@@ -220,6 +227,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "material_lists"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "list_view_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
           },
           {
             foreignKeyName: "list_view_events_school_id_fkey"
@@ -368,8 +382,22 @@ export type Database = {
             foreignKeyName: "material_lists_grade_id_fkey"
             columns: ["grade_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_grades"
+            referencedColumns: ["grade_id"]
+          },
+          {
+            foreignKeyName: "material_lists_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
             referencedRelation: "grades"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_lists_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
           },
           {
             foreignKeyName: "material_lists_school_id_fkey"
@@ -455,6 +483,13 @@ export type Database = {
             foreignKeyName: "purchase_events_item_id_fkey"
             columns: ["item_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_items"
+            referencedColumns: ["item_id"]
+          },
+          {
+            foreignKeyName: "purchase_events_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
             referencedRelation: "material_items"
             referencedColumns: ["id"]
           },
@@ -464,6 +499,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "material_lists"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
           },
           {
             foreignKeyName: "purchase_events_school_id_fkey"
@@ -500,6 +542,13 @@ export type Database = {
           viewed_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "school_view_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
           {
             foreignKeyName: "school_view_events_school_id_fkey"
             columns: ["school_id"]
@@ -591,6 +640,13 @@ export type Database = {
             foreignKeyName: "share_events_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "share_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
             referencedRelation: "schools"
             referencedColumns: ["id"]
           },
@@ -635,6 +691,13 @@ export type Database = {
             foreignKeyName: "store_click_events_item_id_fkey"
             columns: ["item_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_items"
+            referencedColumns: ["item_id"]
+          },
+          {
+            foreignKeyName: "store_click_events_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
             referencedRelation: "material_items"
             referencedColumns: ["id"]
           },
@@ -649,8 +712,22 @@ export type Database = {
             foreignKeyName: "store_click_events_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "store_click_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
             referencedRelation: "schools"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_store_conversion"
+            referencedColumns: ["store_id"]
           },
           {
             foreignKeyName: "store_click_events_store_id_fkey"
@@ -765,6 +842,13 @@ export type Database = {
             foreignKeyName: "uploaded_lists_grade_id_fkey"
             columns: ["grade_id"]
             isOneToOne: false
+            referencedRelation: "analytics_top_grades"
+            referencedColumns: ["grade_id"]
+          },
+          {
+            foreignKeyName: "uploaded_lists_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
             referencedRelation: "grades"
             referencedColumns: ["id"]
           },
@@ -774,6 +858,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "material_lists"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "uploaded_lists_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
           },
           {
             foreignKeyName: "uploaded_lists_school_id_fkey"
@@ -807,7 +898,92 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      analytics_daily_summary: {
+        Row: {
+          cep_searches: number | null
+          date: string | null
+          list_views: number | null
+          school_views: number | null
+          shares: number | null
+          store_clicks: number | null
+        }
+        Relationships: []
+      }
+      analytics_demand_by_region: {
+        Row: {
+          cep_prefix: string | null
+          city: string | null
+          state: string | null
+          total_list_views: number | null
+          total_school_views: number | null
+          total_schools: number | null
+          total_store_clicks: number | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
+      analytics_store_conversion: {
+        Row: {
+          cart_clicks: number | null
+          item_clicks: number | null
+          lists_clicked: number | null
+          logo_url: string | null
+          schools_clicked: number | null
+          store_id: string | null
+          store_name: string | null
+          total_clicks: number | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
+      analytics_top_grades: {
+        Row: {
+          grade_id: string | null
+          grade_name: string | null
+          order_index: number | null
+          schools_with_lists: number | null
+          total_list_views: number | null
+          total_store_clicks: number | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
+      analytics_top_items: {
+        Row: {
+          category_name: string | null
+          item_id: string | null
+          item_name: string | null
+          schools_clicked: number | null
+          total_clicks: number | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
+      analytics_top_schools: {
+        Row: {
+          cep: string | null
+          city: string | null
+          engagement_score: number | null
+          school_id: string | null
+          school_name: string | null
+          state: string | null
+          total_list_views: number | null
+          total_store_clicks: number | null
+          total_views: number | null
+          unique_list_sessions: number | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
+      analytics_upload_funnel: {
+        Row: {
+          date: string | null
+          event_count: number | null
+          event_type: string | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_school_admin_school_id: {

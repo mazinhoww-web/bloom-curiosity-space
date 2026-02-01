@@ -50,6 +50,28 @@ interface ViaCepResponse {
   erro?: boolean;
 }
 
+interface SSEMessage {
+  type: "progress" | "complete" | "error";
+  stage?: string;
+  progress?: number;
+  message?: string;
+  current?: number;
+  total?: number;
+  data?: {
+    total: number;
+    processed: number;
+    inserted: number;
+    processingErrors: string[];
+    insertErrors: string[];
+    preview?: ProcessedSchool[];
+  };
+  error?: string;
+}
+
+function createSSEMessage(msg: SSEMessage): string {
+  return `data: ${JSON.stringify(msg)}\n\n`;
+}
+
 // Cache para CEPs já consultados
 const cepCache = new Map<string, ViaCepResponse | null>();
 
@@ -196,7 +218,11 @@ Cada objeto deve ter: name (corrigido), school_type, education_level, email (cor
   }
 }
 
-async function processWithAI(schools: RawSchool[], apiKey: string): Promise<{ processed: ProcessedSchool[]; errors: string[] }> {
+async function processWithAI(
+  schools: RawSchool[], 
+  apiKey: string,
+  onProgress?: (current: number, total: number, stage: string) => void
+): Promise<{ processed: ProcessedSchool[]; errors: string[] }> {
   const processed: ProcessedSchool[] = [];
   const errors: string[] = [];
   
@@ -210,10 +236,18 @@ async function processWithAI(schools: RawSchool[], apiKey: string): Promise<{ pr
   
   console.log(`Processing ${schools.length} schools in ${batches.length} AI batches with concurrency 5...`);
   
-  // Processar batches de IA em paralelo (5 simultâneos)
+  // Processar batches de IA em paralelo (5 simultâneos) com progresso
+  let completedBatches = 0;
   const aiBatchResults = await processInParallel(
     batches,
-    async (batch) => processAIBatch(batch, apiKey),
+    async (batch) => {
+      const result = await processAIBatch(batch, apiKey);
+      completedBatches++;
+      if (onProgress) {
+        onProgress(completedBatches, batches.length, "ai");
+      }
+      return result;
+    },
     5
   );
   
@@ -241,9 +275,9 @@ async function processWithAI(schools: RawSchool[], apiKey: string): Promise<{ pr
       errors.push(`Erro ao processar: ${school.name || "escola sem nome"}`);
     }
     
-    // Log de progresso a cada 1000 escolas
-    if (processedCount % 1000 === 0) {
-      console.log(`Processed ${processedCount}/${schools.length} schools...`);
+    // Reportar progresso a cada 100 escolas
+    if (processedCount % 100 === 0 && onProgress) {
+      onProgress(processedCount, schools.length, "cep");
     }
   }
   
@@ -296,59 +330,6 @@ async function processSchoolWithAI(school: RawSchool, aiData: { name?: string; s
   };
 }
 
-async function processSchoolBasic(school: RawSchool): Promise<ProcessedSchool | null> {
-  const name = school.name;
-  if (!name) return null;
-  
-  const rawCep = school.cep || "";
-  const cleanCep = rawCep.replace(/\D/g, "");
-  if (cleanCep.length !== 8) return null;
-  
-  let address = school.address || school.endereco || null;
-  let city = school.city || school.cidade || null;
-  let state = school.state || school.estado || school.uf || null;
-  
-  if (!address || !city || !state) {
-    const cepData = await fetchCepData(cleanCep);
-    if (cepData) {
-      if (!address && cepData.logradouro) {
-        address = `${cepData.logradouro}${cepData.bairro ? `, ${cepData.bairro}` : ""}`;
-      }
-      if (!city) city = cepData.localidade;
-      if (!state) state = cepData.uf;
-    }
-  }
-  
-  const baseSlug = generateSlug(name);
-  const slug = city ? `${baseSlug}-${generateSlug(city)}` : baseSlug;
-  
-  // Detectar tipo básico pelo nome
-  let school_type: string | undefined;
-  const nameLower = name.toLowerCase();
-  if (nameLower.includes("municipal") || nameLower.startsWith("e.m.") || nameLower.startsWith("em ")) {
-    school_type = "municipal";
-  } else if (nameLower.includes("estadual") || nameLower.startsWith("e.e.") || nameLower.startsWith("ee ")) {
-    school_type = "estadual";
-  } else if (nameLower.includes("federal") || nameLower.includes("if ") || nameLower.includes("instituto federal")) {
-    school_type = "federal";
-  } else if (nameLower.includes("colégio") && !nameLower.includes("estadual") && !nameLower.includes("municipal")) {
-    school_type = "particular";
-  }
-  
-  return {
-    name: name.trim(),
-    slug,
-    cep: formatCep(cleanCep),
-    address,
-    city,
-    state: state?.toUpperCase() || null,
-    phone: formatPhone(school.phone || school.telefone),
-    email: school.email || null,
-    is_active: true,
-    school_type,
-  };
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -368,7 +349,11 @@ serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const { schools, insertToDb = false } = await req.json() as { schools: RawSchool[]; insertToDb?: boolean };
+    const { schools, insertToDb = false, use_sse = false } = await req.json() as { 
+      schools: RawSchool[]; 
+      insertToDb?: boolean;
+      use_sse?: boolean;
+    };
 
     if (!schools || !Array.isArray(schools)) {
       return new Response(
@@ -377,15 +362,207 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Received ${schools.length} schools to process. insertToDb: ${insertToDb}`);
+    console.log(`Received ${schools.length} schools to process. insertToDb: ${insertToDb}, use_sse: ${use_sse}`);
     
-    // Processar escolas com IA e enriquecimento
+    // Se SSE está habilitado, usar streaming
+    if (use_sse) {
+      const stream = new TransformStream();
+      const writer = stream.writable.getWriter();
+      const encoder = new TextEncoder();
+
+      // Processar em background
+      (async () => {
+        try {
+          // Etapa 1: Iniciando
+          await writer.write(encoder.encode(createSSEMessage({
+            type: "progress",
+            stage: "starting",
+            progress: 5,
+            message: "Iniciando processamento...",
+            current: 0,
+            total: schools.length,
+          })));
+
+          const batchSize = 50;
+          const totalBatches = Math.ceil(schools.length / batchSize);
+          let completedAIBatches = 0;
+          let completedCEP = 0;
+
+          // Processar escolas com IA e enriquecimento com callback de progresso
+          const { processed, errors } = await processWithAI(
+            schools,
+            LOVABLE_API_KEY,
+            async (current, total, stage) => {
+              if (stage === "ai") {
+                completedAIBatches = current;
+                const aiProgress = Math.round((current / total) * 40); // 5-45%
+                await writer.write(encoder.encode(createSSEMessage({
+                  type: "progress",
+                  stage: "ai_processing",
+                  progress: 5 + aiProgress,
+                  message: `Processando com IA... (${current}/${total} batches)`,
+                  current: current * batchSize,
+                  total: schools.length,
+                })));
+              } else if (stage === "cep") {
+                completedCEP = current;
+                const cepProgress = Math.round((current / total) * 20); // 45-65%
+                await writer.write(encoder.encode(createSSEMessage({
+                  type: "progress",
+                  stage: "cep_enrichment",
+                  progress: 45 + cepProgress,
+                  message: `Enriquecendo dados via CEP... (${current.toLocaleString()}/${total.toLocaleString()})`,
+                  current,
+                  total,
+                })));
+              }
+            }
+          );
+          
+          await writer.write(encoder.encode(createSSEMessage({
+            type: "progress",
+            stage: "processed",
+            progress: 65,
+            message: `${processed.length.toLocaleString()} escolas processadas`,
+            current: processed.length,
+            total: schools.length,
+          })));
+
+          let inserted = 0;
+          const insertErrors: string[] = [];
+
+          if (insertToDb && processed.length > 0) {
+            await writer.write(encoder.encode(createSSEMessage({
+              type: "progress",
+              stage: "inserting",
+              progress: 70,
+              message: "Inserindo no banco de dados...",
+              current: 0,
+              total: processed.length,
+            })));
+            
+            // Inserir em batches de 100
+            const insertBatchSize = 100;
+            
+            for (let i = 0; i < processed.length; i += insertBatchSize) {
+              const batch = processed.slice(i, i + insertBatchSize);
+              
+              const { error } = await supabase.from("schools").insert(
+                batch.map(s => ({
+                  name: s.name,
+                  slug: s.slug,
+                  cep: s.cep,
+                  address: s.address,
+                  city: s.city,
+                  state: s.state,
+                  phone: s.phone,
+                  email: s.email,
+                  is_active: s.is_active,
+                }))
+              );
+              
+              if (error) {
+                if (error.code === "23505") {
+                  // Unique constraint - tentar inserir um por um
+                  for (const school of batch) {
+                    const { error: singleError } = await supabase.from("schools").insert({
+                      name: school.name,
+                      slug: school.slug,
+                      cep: school.cep,
+                      address: school.address,
+                      city: school.city,
+                      state: school.state,
+                      phone: school.phone,
+                      email: school.email,
+                      is_active: school.is_active,
+                    });
+                    
+                    if (singleError) {
+                      if (singleError.code === "23505") {
+                        // Tentar com slug modificado
+                        const newSlug = `${school.slug}-${Date.now().toString(36)}`;
+                        const { error: retryError } = await supabase.from("schools").insert({
+                          ...school,
+                          slug: newSlug,
+                        });
+                        
+                        if (retryError) {
+                          insertErrors.push(`"${school.name}": ${retryError.message}`);
+                        } else {
+                          inserted++;
+                        }
+                      } else {
+                        insertErrors.push(`"${school.name}": ${singleError.message}`);
+                      }
+                    } else {
+                      inserted++;
+                    }
+                  }
+                } else {
+                  insertErrors.push(`Batch error: ${error.message}`);
+                }
+              } else {
+                inserted += batch.length;
+              }
+              
+              // Enviar progresso de inserção
+              const insertProgress = Math.round((inserted / processed.length) * 30); // 70-100%
+              await writer.write(encoder.encode(createSSEMessage({
+                type: "progress",
+                stage: "inserting",
+                progress: 70 + insertProgress,
+                message: `Inserindo... (${inserted.toLocaleString()}/${processed.length.toLocaleString()})`,
+                current: inserted,
+                total: processed.length,
+              })));
+            }
+          }
+
+          // Concluído
+          await writer.write(encoder.encode(createSSEMessage({
+            type: "complete",
+            progress: 100,
+            message: insertToDb 
+              ? `${inserted.toLocaleString()} escola(s) importada(s)!`
+              : `${processed.length.toLocaleString()} escola(s) processada(s)!`,
+            data: {
+              total: schools.length,
+              processed: processed.length,
+              inserted,
+              processingErrors: errors,
+              insertErrors,
+              preview: insertToDb ? undefined : processed.slice(0, 10),
+            },
+          })));
+
+          await writer.close();
+        } catch (error) {
+          console.error("SSE Error:", error);
+          await writer.write(encoder.encode(createSSEMessage({
+            type: "error",
+            error: error instanceof Error ? error.message : "Erro desconhecido",
+          })));
+          await writer.close();
+        }
+      })();
+
+      return new Response(stream.readable, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
+    }
+    
+    // Fluxo tradicional (sem SSE)
     const { processed, errors } = await processWithAI(schools, LOVABLE_API_KEY);
     
     console.log(`Processed ${processed.length} schools, ${errors.length} errors`);
 
     let inserted = 0;
-    let insertErrors: string[] = [];
+    const insertErrors: string[] = [];
 
     if (insertToDb && processed.length > 0) {
       console.log(`Inserting ${processed.length} schools into database...`);

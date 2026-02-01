@@ -119,9 +119,16 @@ Deno.serve(async (req) => {
       })
       .eq('id', uploaded_list_id);
 
-    // Convert file to base64 for AI processing
+    // Convert file to base64 for AI processing (chunk-based to avoid stack overflow)
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const chunkSize = 32768; // Process in 32KB chunks
+    let base64 = '';
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.slice(i, i + chunkSize);
+      base64 += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    base64 = btoa(base64);
 
     await supabase
       .from('uploaded_lists')

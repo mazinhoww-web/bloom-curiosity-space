@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      cep_coordinates: {
+        Row: {
+          address: string | null
+          cep: string
+          city: string | null
+          created_at: string | null
+          latitude: number
+          longitude: number
+          source: string | null
+          state: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          cep: string
+          city?: string | null
+          created_at?: string | null
+          latitude: number
+          longitude: number
+          source?: string | null
+          state?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          cep?: string
+          city?: string | null
+          created_at?: string | null
+          latitude?: number
+          longitude?: number
+          source?: string | null
+          state?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       cep_search_events: {
         Row: {
           cep: string
@@ -564,11 +600,15 @@ export type Database = {
           cep: string
           city: string | null
           created_at: string
+          education_types: string[] | null
           email: string | null
           id: string
           is_active: boolean | null
+          latitude: number | null
           logo_url: string | null
+          longitude: number | null
           name: string
+          network_type: string | null
           phone: string | null
           slug: string
           state: string | null
@@ -579,11 +619,15 @@ export type Database = {
           cep: string
           city?: string | null
           created_at?: string
+          education_types?: string[] | null
           email?: string | null
           id?: string
           is_active?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name: string
+          network_type?: string | null
           phone?: string | null
           slug: string
           state?: string | null
@@ -594,11 +638,15 @@ export type Database = {
           cep?: string
           city?: string | null
           created_at?: string
+          education_types?: string[] | null
           email?: string | null
           id?: string
           is_active?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name?: string
+          network_type?: string | null
           phone?: string | null
           slug?: string
           state?: string | null
@@ -1085,6 +1133,14 @@ export type Database = {
           state: string
         }[]
       }
+      get_or_create_cep_coordinates: {
+        Args: { p_cep: string }
+        Returns: {
+          cached: boolean
+          latitude: number
+          longitude: number
+        }[]
+      }
       get_recommended_store: {
         Args: { _list_id: string; _school_id?: string }
         Returns: {
@@ -1106,6 +1162,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      haversine_distance: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
       }
       is_school_admin: {
         Args: { _school_id: string; _user_id: string }
@@ -1149,6 +1209,36 @@ export type Database = {
           logo_url: string
           name: string
           proximity_score: number
+          slug: string
+          state: string
+          total_count: number
+        }[]
+      }
+      search_schools_geo: {
+        Args: {
+          filter_city?: string
+          filter_education?: string
+          filter_network?: string
+          filter_state?: string
+          max_distance_km?: number
+          page_number?: number
+          page_size?: number
+          search_name?: string
+          user_lat: number
+          user_lng: number
+        }
+        Returns: {
+          address: string
+          cep: string
+          city: string
+          distance_km: number
+          education_types: string[]
+          id: string
+          latitude: number
+          logo_url: string
+          longitude: number
+          name: string
+          network_type: string
           slug: string
           state: string
           total_count: number

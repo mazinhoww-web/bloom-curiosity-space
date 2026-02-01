@@ -33,7 +33,7 @@ export function SchoolSelectStep({
   // Use the optimized search hook
   const { schools, isLoading, isFetching, debouncedQuery } = useSchoolSearch({
     query: searchQuery,
-    filters: { state: "", city: "" },
+    filters: { state: "", city: "", network: "", educationTypes: [] },
     page: 0,
     pageSize: 10,
   });

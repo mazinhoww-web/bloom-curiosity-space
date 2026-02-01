@@ -1,14 +1,25 @@
+/**
+ * Schools Page - Busca de escolas por CEP com proximidade geográfica
+ * 
+ * Features:
+ * - Busca por CEP com geocodificação
+ * - Ordenação por distância (Haversine)
+ * - Filtros: Estado, Cidade, Rede, Tipo de Ensino
+ * - Exibição de distância em km
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from "lucide-react";
+import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, Navigation } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
 import { useAnalytics } from "@/hooks/use-analytics";
-import { useSchoolSearch } from "@/hooks/use-school-search";
+import { useSchoolSearchGeo } from "@/hooks/use-school-search-geo";
 import { cleanSchoolName, formatCep, normalizeCep, isCepSearch } from "@/lib/school-utils";
 
 const ITEMS_PER_PAGE = 50;
@@ -19,20 +30,32 @@ export default function Schools() {
   const [filters, setFilters] = useState<SchoolFiltersState>({
     state: searchParams.get("estado") || "",
     city: searchParams.get("cidade") || "",
+    network: searchParams.get("rede") || "",
+    educationTypes: searchParams.get("ensino")?.split(",").filter(Boolean) || [],
   });
   const [page, setPage] = useState(0);
   const { trackCepSearch } = useAnalytics();
   const lastTrackedCep = useRef<string>("");
 
-  // Use the optimized search hook
-  const { schools, total, isLoading, isFetching, debouncedQuery } = useSchoolSearch({
+  // Use the geo-enabled search hook
+  const { 
+    schools, 
+    total, 
+    isLoading, 
+    isFetching, 
+    debouncedQuery,
+    userCoordinates,
+    isGeocodingCep,
+  } = useSchoolSearchGeo({
     query: searchQuery,
     filters,
     page,
     pageSize: ITEMS_PER_PAGE,
+    maxDistanceKm: 100,
   });
 
   const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+  const isGeoSearch = userCoordinates !== null;
 
   // Track CEP searches
   useEffect(() => {
@@ -49,14 +72,18 @@ export default function Schools() {
     const qParam = searchParams.get("q");
     const estadoParam = searchParams.get("estado");
     const cidadeParam = searchParams.get("cidade");
+    const redeParam = searchParams.get("rede");
+    const ensinoParam = searchParams.get("ensino");
 
     if (cepParam) setSearchQuery(cepParam);
     else if (qParam) setSearchQuery(qParam);
 
-    if (estadoParam || cidadeParam) {
+    if (estadoParam || cidadeParam || redeParam || ensinoParam) {
       setFilters({
         state: estadoParam || "",
         city: cidadeParam || "",
+        network: redeParam || "",
+        educationTypes: ensinoParam?.split(",").filter(Boolean) || [],
       });
     }
   }, [searchParams]);
@@ -66,14 +93,13 @@ export default function Schools() {
     if (query.trim()) params.q = query;
     if (newFilters.state) params.estado = newFilters.state;
     if (newFilters.city) params.cidade = newFilters.city;
+    if (newFilters.network) params.rede = newFilters.network;
+    if (newFilters.educationTypes?.length > 0) params.ensino = newFilters.educationTypes.join(",");
     setSearchParams(params);
   };
 
   const handleSearch = (value: string) => {
-    // Format CEP as user types
-    const cleanCep = normalizeCep(value);
     const formatted = isCepSearch(value) ? formatCep(value) : value;
-    
     setSearchQuery(formatted);
     setPage(0);
     updateSearchParams(formatted, filters);
@@ -171,13 +197,34 @@ export default function Schools() {
             </div>
           ) : hasSearchCriteria && schools.length > 0 ? (
             <>
+              {/* Geo search indicator */}
+              {isGeoSearch && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg bg-primary/5 px-4 py-2 text-sm text-primary">
+                  <Navigation className="h-4 w-4" />
+                  <span>Ordenado por proximidade ao CEP informado</span>
+                </div>
+              )}
+
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {schools.map((school) => (
                   <Link key={school.id} to={`/escola/${school.slug}`}>
                     <Card className="group h-full cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
                       <CardContent className="p-6">
-                        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary">
-                          <SchoolIcon className="h-6 w-6 text-primary transition-colors group-hover:text-primary-foreground" />
+                        <div className="mb-4 flex items-start justify-between">
+                          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary">
+                            <SchoolIcon className="h-6 w-6 text-primary transition-colors group-hover:text-primary-foreground" />
+                          </div>
+                          
+                          {/* Distance badge */}
+                          {school.distance_km !== null && school.distance_km !== undefined && (
+                            <Badge variant="secondary" className="gap-1 text-xs">
+                              <Navigation className="h-3 w-3" />
+                              {school.distance_km < 1 
+                                ? `${Math.round(school.distance_km * 1000)}m`
+                                : `${school.distance_km.toFixed(1)}km`
+                              }
+                            </Badge>
+                          )}
                         </div>
 
                         <h3 className="mb-2 font-display text-lg font-bold text-foreground transition-colors group-hover:text-primary line-clamp-2">
@@ -192,6 +239,15 @@ export default function Schools() {
                               : `CEP: ${formatCep(school.cep)}`}
                           </span>
                         </div>
+
+                        {/* Network type badge */}
+                        {school.network_type && (
+                          <div className="mt-2">
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {school.network_type === 'publica' ? 'Pública' : 'Privada'}
+                            </Badge>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </Link>
@@ -334,7 +390,7 @@ export default function Schools() {
                 variant="outline"
                 onClick={() => {
                   handleSearch("");
-                  handleFiltersChange({ state: "", city: "" });
+                  handleFiltersChange({ state: "", city: "", network: "", educationTypes: [] });
                 }}
               >
                 Limpar filtros

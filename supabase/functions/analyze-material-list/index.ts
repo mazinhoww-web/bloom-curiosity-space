@@ -131,28 +131,89 @@ async function logMetric(
   }
 }
 
-// Helper function to call AI provider
-async function callAI(
-  apiUrl: string, 
+// Helper function to call OpenRouter with specific free model config
+async function callOpenRouter(
   apiKey: string, 
-  model: string, 
-  imageContent: { type: string; image_url: { url: string } },
-  providerName: string
+  imageContent: { type: string; image_url: { url: string } }
 ): Promise<{ success: boolean; content?: string; error?: string; status?: number; responseTimeMs: number }> {
-  console.log(`[AI] Calling ${providerName} with model ${model}...`);
+  console.log("[AI] Calling OpenRouter with arcee-ai/trinity-large-preview:free...");
   
   const startTime = Date.now();
   
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        ...(providerName === "OpenRouter" ? { "HTTP-Referer": "https://listapronta1.lovable.app" } : {}),
+        "HTTP-Referer": "https://listaescolar.app",
+        "X-Title": "Lista Escolar",
       },
       body: JSON.stringify({
-        model,
+        model: "arcee-ai/trinity-large-preview:free",
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analise esta lista de materiais escolares e extraia TODOS os itens. Retorne APENAS JSON válido, sem markdown."
+              },
+              imageContent
+            ]
+          }
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+      }),
+    });
+
+    const responseTimeMs = Date.now() - startTime;
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[AI] OpenRouter API error:", response.status, errorText);
+      return { success: false, error: errorText, status: response.status, responseTimeMs };
+    }
+
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      return { success: false, error: "Empty response from AI", responseTimeMs };
+    }
+
+    console.log(`[AI] OpenRouter response received successfully in ${responseTimeMs}ms`);
+    return { success: true, content, responseTimeMs };
+  } catch (error) {
+    const responseTimeMs = Date.now() - startTime;
+    console.error("[AI] OpenRouter call failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error", responseTimeMs };
+  }
+}
+
+// Helper function to call Lovable AI (fallback)
+async function callLovableAI(
+  apiKey: string, 
+  imageContent: { type: string; image_url: { url: string } }
+): Promise<{ success: boolean; content?: string; error?: string; status?: number; responseTimeMs: number }> {
+  console.log("[AI] Calling Lovable AI (fallback)...");
+  
+  const startTime = Date.now();
+  
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
         messages: [
           {
             role: "system",
@@ -170,7 +231,7 @@ async function callAI(
           }
         ],
         temperature: 0.1,
-        max_tokens: 8192, // Reduced to work within OpenRouter free tier limits
+        max_tokens: 8192,
       }),
     });
 
@@ -178,7 +239,7 @@ async function callAI(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[AI] ${providerName} API error:`, response.status, errorText);
+      console.error("[AI] Lovable AI API error:", response.status, errorText);
       return { success: false, error: errorText, status: response.status, responseTimeMs };
     }
 
@@ -189,11 +250,11 @@ async function callAI(
       return { success: false, error: "Empty response from AI", responseTimeMs };
     }
 
-    console.log(`[AI] ${providerName} response received successfully in ${responseTimeMs}ms`);
+    console.log(`[AI] Lovable AI response received successfully in ${responseTimeMs}ms`);
     return { success: true, content, responseTimeMs };
   } catch (error) {
     const responseTimeMs = Date.now() - startTime;
-    console.error(`[AI] ${providerName} call failed:`, error);
+    console.error("[AI] Lovable AI call failed:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error", responseTimeMs };
   }
 }
@@ -254,16 +315,10 @@ serve(async (req) => {
     let usedProvider = "none";
     let fallbackUsed = false;
 
-    // Try OpenRouter first (primary)
+    // Try OpenRouter first (primary) with free model
     if (OPENROUTER_API_KEY) {
-      console.log("[analyze-material-list] Trying OpenRouter (primary)...");
-      const openRouterResult = await callAI(
-        "https://openrouter.ai/api/v1/chat/completions",
-        OPENROUTER_API_KEY,
-        "google/gemini-2.5-flash",
-        imageContent,
-        "OpenRouter"
-      );
+      console.log("[analyze-material-list] Trying OpenRouter (primary) with arcee-ai/trinity-large-preview:free...");
+      const openRouterResult = await callOpenRouter(OPENROUTER_API_KEY, imageContent);
 
       // Log OpenRouter attempt
       await logMetric(
@@ -284,11 +339,14 @@ serve(async (req) => {
       } else {
         console.log(`[analyze-material-list] ❌ OpenRouter failed: ${openRouterResult.error}`);
         
-        // Check for rate limiting or payment issues
-        if (openRouterResult.status === 429) {
-          console.log("[analyze-material-list] OpenRouter rate limited, trying fallback...");
-        } else if (openRouterResult.status === 402) {
-          console.log("[analyze-material-list] OpenRouter payment required, trying fallback...");
+        // Check for errors that should trigger fallback (402, 429, 5xx)
+        const status = openRouterResult.status || 0;
+        if (status === 429) {
+          console.log("[analyze-material-list] OpenRouter rate limited (429), trying Lovable AI fallback...");
+        } else if (status === 402) {
+          console.log("[analyze-material-list] OpenRouter payment required (402), trying Lovable AI fallback...");
+        } else if (status >= 500) {
+          console.log(`[analyze-material-list] OpenRouter server error (${status}), trying Lovable AI fallback...`);
         }
       }
     }
@@ -298,13 +356,7 @@ serve(async (req) => {
       console.log("[analyze-material-list] Trying Lovable AI (fallback)...");
       fallbackUsed = true;
       
-      const lovableResult = await callAI(
-        "https://ai.gateway.lovable.dev/v1/chat/completions",
-        LOVABLE_API_KEY,
-        "google/gemini-2.5-flash",
-        imageContent,
-        "Lovable AI"
-      );
+      const lovableResult = await callLovableAI(LOVABLE_API_KEY, imageContent);
 
       // Log Lovable AI attempt
       await logMetric(

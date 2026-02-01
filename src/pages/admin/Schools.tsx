@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   MapPin,
   Loader2,
+  Upload,
 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -42,10 +43,12 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { School } from "@/types/database";
 import { SchoolFormDialog } from "@/components/admin/SchoolFormDialog";
+import { SchoolImportDialog } from "@/components/admin/SchoolImportDialog";
 
 export default function AdminSchools() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [selectedSchool, setSelectedSchool] = useState<School | null>(null);
   const [deleteSchool, setDeleteSchool] = useState<School | null>(null);
   const { toast } = useToast();
@@ -123,10 +126,16 @@ export default function AdminSchools() {
               />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
-            <Button onClick={handleCreate} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nova Escola
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsImportOpen(true)} className="gap-2">
+                <Upload className="h-4 w-4" />
+                Importar CSV
+              </Button>
+              <Button onClick={handleCreate} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Nova Escola
+              </Button>
+            </div>
           </div>
 
           {isLoading ? (
@@ -210,6 +219,11 @@ export default function AdminSchools() {
         open={isFormOpen}
         onClose={handleFormClose}
         school={selectedSchool}
+      />
+
+      <SchoolImportDialog
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
       />
 
       <AlertDialog open={!!deleteSchool} onOpenChange={() => setDeleteSchool(null)}>

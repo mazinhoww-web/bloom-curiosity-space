@@ -63,7 +63,7 @@ const PAGE_SIZES = [20, 50, 100];
 
 export default function AdminSchools() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState<SchoolFiltersState>({ state: "", city: "" });
+  const [filters, setFilters] = useState<SchoolFiltersState>({ state: "", city: "", network: "", educationTypes: [] });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [isFormOpen, setIsFormOpen] = useState(false);

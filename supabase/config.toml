@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.publish-uploaded-list]
 verify_jwt = false
+
+[functions.geocode-cep]
+verify_jwt = false

@@ -6,6 +6,8 @@ import { normalizeCep, isCepSearch } from "@/lib/school-utils";
 export interface SchoolSearchFilters {
   state: string;
   city: string;
+  network: string;
+  educationTypes: string[];
 }
 
 export interface SchoolSearchResult {

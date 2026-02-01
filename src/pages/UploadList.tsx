@@ -1,15 +1,20 @@
-import { useState, useCallback } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { ArrowLeft } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { ContributeIntro } from "@/components/upload/ContributeIntro";
 import { SchoolSelectStep } from "@/components/upload/SchoolSelectStep";
-import { UploadStep } from "@/components/upload/UploadStep";
+import { InputMethodSelector } from "@/components/upload/InputMethodSelector";
+import { FileUploadStep } from "@/components/upload/FileUploadStep";
+import { ManualEntryStep } from "@/components/upload/ManualEntryStep";
 import { ProcessingStep } from "@/components/upload/ProcessingStep";
-import { ReviewStep } from "@/components/upload/ReviewStep";
-import { SuccessStep } from "@/components/upload/SuccessStep";
+import { ConfirmationStep } from "@/components/upload/ConfirmationStep";
+import { ThankYouStep } from "@/components/upload/ThankYouStep";
 import { usePublicUpload, ExtractedItem } from "@/hooks/use-public-upload";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SelectedSchool {
   id: string;
@@ -19,17 +24,38 @@ interface SelectedSchool {
   cep: string;
 }
 
-type WizardStep = "school" | "upload" | "processing" | "review" | "success";
+type WizardStep = 
+  | "intro"
+  | "school" 
+  | "input-method" 
+  | "upload" 
+  | "manual"
+  | "processing" 
+  | "confirmation" 
+  | "thank-you";
 
-const STEPS: WizardStep[] = ["school", "upload", "processing", "review", "success"];
+type InputMethod = "upload" | "camera" | "manual";
+
+const STEP_PROGRESS: Record<WizardStep, number> = {
+  "intro": 0,
+  "school": 20,
+  "input-method": 35,
+  "upload": 50,
+  "manual": 50,
+  "processing": 70,
+  "confirmation": 85,
+  "thank-you": 100,
+};
 
 export default function UploadList() {
   // Wizard state
-  const [currentStep, setCurrentStep] = useState<WizardStep>("school");
+  const [currentStep, setCurrentStep] = useState<WizardStep>("intro");
   const [selectedSchool, setSelectedSchool] = useState<SelectedSchool | null>(null);
   const [customSchoolName, setCustomSchoolName] = useState<string | null>(null);
+  const [inputMethod, setInputMethod] = useState<InputMethod | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedGradeId, setSelectedGradeId] = useState<string | null>(null);
+  const [manualItems, setManualItems] = useState<ExtractedItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [publishResult, setPublishResult] = useState<{
     schoolSlug: string | null;
@@ -52,20 +78,24 @@ export default function UploadList() {
     error,
   } = usePublicUpload();
 
-  // Calculate progress percentage
-  const stepIndex = STEPS.indexOf(currentStep);
-  const progressPercent = ((stepIndex + 1) / STEPS.length) * 100;
+  // Fetch grade name
+  const { data: grades } = useQuery({
+    queryKey: ["grades"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("grades").select("*").order("order_index");
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  // Step titles
-  const stepTitles: Record<WizardStep, string> = {
-    school: "Escola",
-    upload: "Upload",
-    processing: "Processando",
-    review: "Revisão",
-    success: "Concluído",
-  };
+  const selectedGradeName = grades?.find(g => g.id === selectedGradeId)?.name || "";
+  const schoolDisplayName = selectedSchool?.name || customSchoolName || "Escola";
 
   // Handlers
+  const handleStart = useCallback(() => {
+    setCurrentStep("school");
+  }, []);
+
   const handleSchoolSelect = useCallback((school: SelectedSchool | null, customName: string | null) => {
     setSelectedSchool(school);
     setCustomSchoolName(customName);
@@ -73,21 +103,28 @@ export default function UploadList() {
 
   const handleNextFromSchool = useCallback(() => {
     if (selectedSchool || customSchoolName) {
-      setCurrentStep("upload");
+      setCurrentStep("input-method");
     }
   }, [selectedSchool, customSchoolName]);
+
+  const handleInputMethodSelect = useCallback((method: InputMethod) => {
+    setInputMethod(method);
+    if (method === "manual") {
+      setCurrentStep("manual");
+    } else {
+      setCurrentStep("upload");
+    }
+  }, []);
 
   const handleProcess = useCallback(async () => {
     if (!selectedFile || !selectedGradeId) return;
 
     try {
-      // Simulate upload progress
       setUploadProgress(0);
       const progressInterval = setInterval(() => {
         setUploadProgress((p) => Math.min(p + 10, 90));
       }, 200);
 
-      // Upload file
       const upload = await uploadFile(
         selectedFile,
         selectedSchool?.id || null,
@@ -97,115 +134,233 @@ export default function UploadList() {
 
       clearInterval(progressInterval);
       setUploadProgress(100);
-
-      // Move to processing step
       setCurrentStep("processing");
 
-      // Start processing
       await processUpload(upload.id);
-
-      // Move to review step when done
-      if (uploadedList?.status === "completed" || uploadedList?.extracted_items) {
-        setCurrentStep("review");
-      }
     } catch (err) {
       console.error("Upload/process error:", err);
     }
-  }, [selectedFile, selectedGradeId, selectedSchool, customSchoolName, uploadFile, processUpload, uploadedList]);
+  }, [selectedFile, selectedGradeId, selectedSchool, customSchoolName, uploadFile, processUpload]);
+
+  const handleManualFinish = useCallback(() => {
+    if (manualItems.length > 0) {
+      setCurrentStep("confirmation");
+    }
+  }, [manualItems.length]);
+
+  const handleConfirmBack = useCallback(() => {
+    if (inputMethod === "manual") {
+      setCurrentStep("manual");
+    } else if (uploadedList?.extracted_items) {
+      // Go back to a review-like state - for now just stay
+      setCurrentStep("confirmation");
+    }
+  }, [inputMethod, uploadedList]);
 
   const handlePublish = useCallback(async () => {
-    if (!uploadedList?.extracted_items) return;
+    const itemsToPublish = inputMethod === "manual" 
+      ? manualItems 
+      : uploadedList?.extracted_items || [];
+
+    if (itemsToPublish.length === 0) return;
 
     try {
-      const result = await publishList(uploadedList.extracted_items);
-      setPublishResult({
-        schoolSlug: result.school_slug,
-        schoolName: result.school_name || selectedSchool?.name || customSchoolName || "Escola",
-        gradeName: result.grade_name || "Série",
-        itemsCount: result.items_count,
-      });
-      setCurrentStep("success");
+      // For manual entry, we need to create the upload record first
+      if (inputMethod === "manual" && selectedGradeId) {
+        // Create a minimal blob to represent manual entry
+        const blob = new Blob([JSON.stringify(itemsToPublish)], { type: "application/json" });
+        const file = new File([blob], "manual-entry.json", { type: "application/json" });
+        
+        const upload = await uploadFile(
+          file,
+          selectedSchool?.id || null,
+          customSchoolName,
+          selectedGradeId
+        );
+
+        // Update the items and publish
+        updateItems(itemsToPublish);
+        const result = await publishList(itemsToPublish);
+        
+        setPublishResult({
+          schoolSlug: result.school_slug,
+          schoolName: result.school_name || schoolDisplayName,
+          gradeName: result.grade_name || selectedGradeName,
+          itemsCount: result.items_count,
+        });
+      } else if (uploadedList) {
+        const result = await publishList(itemsToPublish);
+        setPublishResult({
+          schoolSlug: result.school_slug,
+          schoolName: result.school_name || schoolDisplayName,
+          gradeName: result.grade_name || selectedGradeName,
+          itemsCount: result.items_count,
+        });
+      }
+      
+      setCurrentStep("thank-you");
     } catch (err) {
       console.error("Publish error:", err);
     }
-  }, [uploadedList, publishList, selectedSchool, customSchoolName]);
+  }, [inputMethod, manualItems, uploadedList, publishList, selectedSchool, customSchoolName, selectedGradeId, uploadFile, updateItems, schoolDisplayName, selectedGradeName]);
 
   const handleReset = useCallback(() => {
     reset();
-    setCurrentStep("school");
+    setCurrentStep("intro");
     setSelectedSchool(null);
     setCustomSchoolName(null);
+    setInputMethod(null);
     setSelectedFile(null);
     setSelectedGradeId(null);
+    setManualItems([]);
     setUploadProgress(0);
     setPublishResult(null);
   }, [reset]);
 
   const handleBack = useCallback(() => {
-    const currentIndex = STEPS.indexOf(currentStep);
-    if (currentIndex > 0 && currentStep !== "processing" && currentStep !== "success") {
-      setCurrentStep(STEPS[currentIndex - 1]);
+    switch (currentStep) {
+      case "school":
+        setCurrentStep("intro");
+        break;
+      case "input-method":
+        setCurrentStep("school");
+        break;
+      case "upload":
+      case "manual":
+        setCurrentStep("input-method");
+        setInputMethod(null);
+        break;
+      case "confirmation":
+        if (inputMethod === "manual") {
+          setCurrentStep("manual");
+        } else {
+          setCurrentStep("upload");
+        }
+        break;
     }
-  }, [currentStep]);
+  }, [currentStep, inputMethod]);
 
-  // Check if processing completed
-  if (currentStep === "processing" && uploadedList?.status === "completed") {
-    // Auto-advance to review
-    setTimeout(() => setCurrentStep("review"), 500);
-  }
+  // Auto-advance from processing to confirmation
+  useEffect(() => {
+    if (currentStep === "processing" && uploadedList?.status === "completed") {
+      setTimeout(() => setCurrentStep("confirmation"), 500);
+    }
+  }, [currentStep, uploadedList?.status]);
 
-  const canGoBack = currentStep !== "school" && currentStep !== "processing" && currentStep !== "success";
-  const canGoNext = currentStep === "school" && (selectedSchool || customSchoolName);
+  const showProgressBar = currentStep !== "intro" && currentStep !== "thank-you";
+  const showBackButton = ["school", "input-method", "upload", "manual"].includes(currentStep);
+
+  const getCurrentItems = (): ExtractedItem[] => {
+    if (inputMethod === "manual") {
+      return manualItems;
+    }
+    return uploadedList?.extracted_items || [];
+  };
 
   return (
     <MainLayout>
-      <div className="min-h-screen bg-gradient-to-b from-primary/5 to-background py-8">
+      <div className="min-h-screen bg-gradient-to-b from-primary/5 via-background to-background py-8 md:py-12">
         <div className="container max-w-lg">
-          {/* Header */}
-          <div className="mb-6 text-center">
-            <h1 className="font-display text-3xl font-bold">
-              Contribuir Lista
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Ajude outros pais compartilhando a lista da sua escola
-            </p>
-          </div>
-
-          {/* Progress */}
-          <div className="mb-6">
-            <div className="mb-2 flex justify-between text-sm">
-              <span className="font-medium">{stepTitles[currentStep]}</span>
-              <span className="text-muted-foreground">
-                {stepIndex + 1} de {STEPS.length}
-              </span>
+          {/* Progress Bar */}
+          {showProgressBar && (
+            <div className="mb-6">
+              <Progress value={STEP_PROGRESS[currentStep]} className="h-2" />
             </div>
-            <Progress value={progressPercent} className="h-2" />
-          </div>
+          )}
+
+          {/* Back Button */}
+          {showBackButton && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mb-4 gap-1 -ml-2"
+              onClick={handleBack}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Voltar
+            </Button>
+          )}
 
           {/* Main Card */}
-          <Card className="shadow-lg">
-            <CardContent className="p-6">
-              {/* Step Content */}
-              {currentStep === "school" && (
-                <SchoolSelectStep
-                  onSelect={handleSchoolSelect}
-                  selectedSchool={selectedSchool}
-                  customSchoolName={customSchoolName}
-                />
+          <Card className="shadow-xl border-0">
+            <CardContent className="p-6 md:p-8">
+              {/* Intro */}
+              {currentStep === "intro" && (
+                <ContributeIntro onStart={handleStart} />
               )}
 
-              {currentStep === "upload" && (
-                <UploadStep
+              {/* School Selection */}
+              {currentStep === "school" && (
+                <div className="space-y-6">
+                  <SchoolSelectStep
+                    onSelect={handleSchoolSelect}
+                    selectedSchool={selectedSchool}
+                    customSchoolName={customSchoolName}
+                  />
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    onClick={handleNextFromSchool}
+                    disabled={!selectedSchool && !customSchoolName}
+                  >
+                    Continuar
+                  </Button>
+                </div>
+              )}
+
+              {/* Input Method Selection */}
+              {currentStep === "input-method" && (
+                <InputMethodSelector onSelect={handleInputMethodSelect} />
+              )}
+
+              {/* File Upload */}
+              {currentStep === "upload" && inputMethod && (
+                <FileUploadStep
                   file={selectedFile}
                   gradeId={selectedGradeId}
+                  inputMethod={inputMethod === "camera" ? "camera" : "upload"}
                   onFileSelect={setSelectedFile}
                   onGradeSelect={setSelectedGradeId}
                   onProcess={handleProcess}
+                  onBack={handleBack}
                   isUploading={isUploading}
                   uploadProgress={uploadProgress}
                 />
               )}
 
+              {/* Manual Entry */}
+              {currentStep === "manual" && (
+                <div className="space-y-6">
+                  {/* Grade Selection for manual */}
+                  {!selectedGradeId && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Série / Ano *</label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={selectedGradeId || ""}
+                        onChange={(e) => setSelectedGradeId(e.target.value)}
+                      >
+                        <option value="">Selecione a série...</option>
+                        {grades?.map((grade) => (
+                          <option key={grade.id} value={grade.id}>
+                            {grade.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  
+                  {selectedGradeId && (
+                    <ManualEntryStep
+                      items={manualItems}
+                      onUpdateItems={setManualItems}
+                      onFinish={handleManualFinish}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Processing */}
               {currentStep === "processing" && (
                 <ProcessingStep
                   progress={uploadedList?.processing_progress || 0}
@@ -214,66 +369,46 @@ export default function UploadList() {
                 />
               )}
 
-              {currentStep === "review" && uploadedList?.extracted_items && (
-                <ReviewStep
-                  items={uploadedList.extracted_items}
-                  onUpdateItems={updateItems}
-                  onPublish={handlePublish}
+              {/* Confirmation */}
+              {currentStep === "confirmation" && (
+                <ConfirmationStep
+                  schoolName={schoolDisplayName}
+                  gradeName={selectedGradeName}
+                  items={getCurrentItems()}
+                  onBack={handleConfirmBack}
+                  onConfirm={handlePublish}
                   isPublishing={isPublishing}
                 />
               )}
 
-              {currentStep === "success" && publishResult && (
-                <SuccessStep
+              {/* Thank You */}
+              {currentStep === "thank-you" && publishResult && (
+                <ThankYouStep
                   schoolSlug={publishResult.schoolSlug}
                   schoolName={publishResult.schoolName}
                   gradeName={publishResult.gradeName}
                   itemsCount={publishResult.itemsCount}
-                  uploadedListId={uploadedList?.id}
                   onReset={handleReset}
                 />
               )}
 
               {/* Error Display */}
-              {error && (
+              {error && currentStep !== "thank-you" && (
                 <div className="mt-4 rounded-lg bg-destructive/10 p-3 text-center text-sm text-destructive">
                   {error}
-                </div>
-              )}
-
-              {/* Navigation */}
-              {currentStep !== "processing" && currentStep !== "success" && (
-                <div className="mt-6 flex gap-3">
-                  {canGoBack && (
-                    <Button
-                      variant="outline"
-                      onClick={handleBack}
-                      className="gap-1"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Voltar
-                    </Button>
-                  )}
-                  {canGoNext && (
-                    <Button
-                      className="flex-1 gap-1"
-                      onClick={handleNextFromSchool}
-                    >
-                      Próximo
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  )}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Help Text */}
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            Sua contribuição ajuda milhares de pais a economizar tempo.
-            <br />
-            Não é necessário criar conta.
-          </p>
+          {/* Trust Indicators */}
+          {currentStep === "intro" && (
+            <div className="mt-8 flex justify-center gap-6 text-xs text-muted-foreground">
+              <span>🔒 Sem cadastro</span>
+              <span>⚡ 2 minutos</span>
+              <span>💚 100% gratuito</span>
+            </div>
+          )}
         </div>
       </div>
     </MainLayout>

@@ -984,8 +984,70 @@ export type Database = {
         }
         Relationships: []
       }
+      store_recommendation_scores: {
+        Row: {
+          cart_clicks: number | null
+          context_score: number | null
+          final_score: number | null
+          global_score: number | null
+          item_clicks: number | null
+          list_id: string | null
+          list_views: number | null
+          school_id: string | null
+          store_id: string | null
+          unique_sessions: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_click_events_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_top_schools"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "store_click_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "analytics_store_conversion"
+            referencedColumns: ["store_id"]
+          },
+          {
+            foreignKeyName: "store_click_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "partner_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      get_recommended_store: {
+        Args: { _list_id: string; _school_id?: string }
+        Returns: {
+          cart_clicks: number
+          item_clicks: number
+          reason: string
+          score: number
+          store_id: string
+          store_name: string
+        }[]
+      }
       get_school_admin_school_id: {
         Args: { _user_id: string }
         Returns: string

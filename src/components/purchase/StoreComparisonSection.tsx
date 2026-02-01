@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Store, ExternalLink, ShoppingCart, ChevronDown, ChevronUp } from "lucide-react";
+import { Store, ExternalLink, ShoppingCart, ChevronDown, ChevronUp, Star, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useStoreCarts, useStoreCartActions } from "@/hooks/use-store-carts";
+import { useStoreCarts, useStoreCartActions, useStoreRecommendation } from "@/hooks/use-store-carts";
 import { useAnalytics } from "@/hooks/use-analytics";
 
 interface StoreComparisonSectionProps {
@@ -19,6 +19,7 @@ interface StoreComparisonSectionProps {
 
 export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSectionProps) {
   const { storeCarts, totalItems, isLoading, error } = useStoreCarts(listId);
+  const { recommendation, isLoading: isLoadingRecommendation } = useStoreRecommendation(listId, schoolId);
   const { openAllItemsInStore, openSingleItem, isOpening } = useStoreCartActions();
   const { trackStoreCartView } = useAnalytics();
   const [expandedStore, setExpandedStore] = useState<string | null>(null);
@@ -69,6 +70,21 @@ export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSect
     setExpandedStore(expandedStore === storeId ? null : storeId);
   };
 
+  // Sort stores: recommended first, then by total estimate
+  const sortedStoreCarts = [...storeCarts].sort((a, b) => {
+    if (recommendation) {
+      if (a.store_id === recommendation.store_id) return -1;
+      if (b.store_id === recommendation.store_id) return 1;
+    }
+    // Then sort by price (lowest first)
+    if (a.total_estimate && b.total_estimate) {
+      return a.total_estimate - b.total_estimate;
+    }
+    return 0;
+  });
+
+  const isRecommended = (storeId: string) => recommendation?.store_id === storeId;
+
   return (
     <Card className="mt-6 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
       <CardHeader>
@@ -82,8 +98,26 @@ export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSect
       </CardHeader>
       <CardContent>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {storeCarts.map((storeCart) => (
-            <Card key={storeCart.store_id} className="relative overflow-hidden">
+          {sortedStoreCarts.map((storeCart) => {
+            const recommended = isRecommended(storeCart.store_id);
+            
+            return (
+            <Card 
+              key={storeCart.store_id} 
+              className={`relative overflow-hidden transition-all ${
+                recommended 
+                  ? "ring-2 ring-primary shadow-lg" 
+                  : ""
+              }`}
+            >
+              {/* Recommended Badge */}
+              {recommended && (
+                <div className="absolute -right-8 top-3 rotate-45 bg-primary px-10 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+                  <Star className="mr-1 inline-block h-3 w-3" />
+                  Recomendada
+                </div>
+              )}
+              
               <CardContent className="p-4">
                 {/* Store Header */}
                 <div className="mb-3 flex items-center gap-3">
@@ -98,13 +132,26 @@ export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSect
                       <Store className="h-5 w-5 text-muted-foreground" />
                     </div>
                   )}
-                  <div>
-                    <h3 className="font-semibold">{storeCart.store_name}</h3>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">{storeCart.store_name}</h3>
+                      {recommended && (
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {totalItems} itens disponíveis
                     </p>
                   </div>
                 </div>
+                
+                {/* Recommendation Reason */}
+                {recommended && recommendation?.reason && (
+                  <div className="mb-3 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
+                    <TrendingUp className="mr-1 inline-block h-3 w-3" />
+                    {recommendation.reason}
+                  </div>
+                )}
 
                 {/* Price Estimate */}
                 <div className="mb-4">
@@ -133,12 +180,13 @@ export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSect
 
                 {/* Buy All Button */}
                 <Button
-                  className="w-full gap-2"
+                  className={`w-full gap-2 ${recommended ? "bg-primary hover:bg-primary/90" : ""}`}
+                  variant={recommended ? "default" : "outline"}
                   onClick={() => handleBuyAll(storeCart)}
                   disabled={isOpening}
                 >
                   <ShoppingCart className="h-4 w-4" />
-                  Comprar tudo aqui
+                  {recommended ? "Comprar na loja recomendada" : "Comprar tudo aqui"}
                 </Button>
 
                 {/* Expandable Items List */}
@@ -204,7 +252,8 @@ export function StoreComparisonSection({ listId, schoolId }: StoreComparisonSect
                 </Collapsible>
               </CardContent>
             </Card>
-          ))}
+          );
+          })}
         </div>
 
         {/* Disclaimer */}

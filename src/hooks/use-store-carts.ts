@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface StoreCartItem {
   item_id: string;
@@ -25,6 +26,15 @@ interface StoreCartsResponse {
   store_carts: StoreCart[];
   total_items: number;
   school_id: string;
+}
+
+interface StoreRecommendation {
+  store_id: string;
+  store_name: string;
+  score: number;
+  reason: string;
+  cart_clicks: number;
+  item_clicks: number;
 }
 
 // Get session ID for tracking
@@ -76,6 +86,39 @@ export function useStoreCarts(listId: string | null | undefined) {
     schoolId: data?.school_id,
     isLoading,
     error,
+  };
+}
+
+export function useStoreRecommendation(listId: string | null | undefined, schoolId: string | undefined) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["store-recommendation", listId, schoolId],
+    queryFn: async () => {
+      if (!listId) return null;
+
+      const { data, error } = await supabase.rpc("get_recommended_store", {
+        _list_id: listId,
+        _school_id: schoolId || null,
+      });
+
+      if (error) {
+        console.error("Failed to get store recommendation:", error);
+        return null;
+      }
+
+      // RPC returns array, get first result
+      if (data && data.length > 0) {
+        return data[0] as StoreRecommendation;
+      }
+
+      return null;
+    },
+    enabled: !!listId,
+    staleTime: 1000 * 60 * 10, // Cache for 10 minutes
+  });
+
+  return {
+    recommendation: data,
+    isLoading,
   };
 }
 

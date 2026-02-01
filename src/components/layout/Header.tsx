@@ -56,7 +56,7 @@ export function Header() {
           </Link>
           
           <Link 
-            to="/parceiros?tipo=marca" 
+            to="/marcas" 
             className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-primary flex items-center gap-1.5"
           >
             <Tag className="h-4 w-4" />
@@ -143,7 +143,7 @@ export function Header() {
             </Link>
             
             <Link 
-              to="/parceiros?tipo=marca" 
+              to="/marcas" 
               className="rounded-lg px-3 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted flex items-center gap-3"
               onClick={() => setIsMenuOpen(false)}
             >

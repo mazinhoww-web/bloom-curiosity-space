@@ -208,9 +208,11 @@ export function useSchoolSearchGeo({
 
       return { schools: results, total };
     },
-    staleTime: 30000, // 30 second cache
+    staleTime: 1000 * 60 * 5, // 5 minute cache - reduced API calls
+    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
     enabled: shouldQuery && (!isCep || !isGeocodingCep || cleanCep.length >= 5),
     placeholderData: (prev) => prev,
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
   return {

@@ -1,59 +1,109 @@
 
-# Plano: Correção do Bug de Acesso ao Painel Admin
+# Plano: Otimização do Processamento CSV e Correção do Admin
 
-## Diagnóstico do Problema
+## Visão Geral
 
-Foi identificada uma **race condition** no fluxo de autenticação que impede usuários admin de acessarem o painel.
+Este plano resolve dois problemas críticos:
+1. **Processamento CSV lento** - IA sendo chamada durante o upload, tornando o processo extremamente lento
+2. **Painel admin não abre** - Race condition que impede administradores de acessarem o painel
 
-### Fluxo Atual (com bug)
+---
+
+## Problema 1: Processamento CSV Lento
+
+### Diagnóstico
+
+O fluxo atual:
 ```text
-1. getSession() retorna sessão
-2. setUser(user) 
-3. checkAdminRole(userId) ← chamada assíncrona INICIA
-4. setIsLoading(false) ← PROBLEMA: executado ANTES do passo 3 terminar
-5. AdminLayout verifica: isLoading=false, isAdmin=false
-6. AdminLayout redireciona para "/" ← usuário removido do /admin
-7. checkAdminRole termina: setIsAdmin(true) ← tarde demais!
+Frontend → Envia 500 escolas → Edge Function → 10 chamadas IA (50 cada) → Retorna
+Frontend → Envia próximas 500 → Edge Function → 10 chamadas IA → Retorna
+... repete para cada chunk
 ```
 
-### Fluxo Corrigido
+Para 180.000 escolas = 360 chunks = 3.600 chamadas de IA em série!
+
+### Solução: Processamento em Duas Etapas
+
+Novo fluxo:
 ```text
-1. getSession() retorna sessão
-2. setUser(user)
-3. await checkAdminRole(userId) ← aguarda conclusão
-4. setIsLoading(false) ← agora isAdmin já tem valor correto
-5. AdminLayout verifica: isLoading=false, isAdmin=true
-6. AdminLayout renderiza painel admin corretamente
+1. Upload Rápido: Frontend lê arquivo → Parse local → Mostra preview básico
+2. Processamento: Envia TUDO para edge function → Processa em background
+3. Inserção: Edge function insere no banco em batches
+```
+
+### Arquivos a Modificar
+
+**1. `src/components/admin/SchoolImportDialog.tsx`**
+
+Mudanças:
+- Separar etapa de upload (rápido, local) da etapa de processamento (backend)
+- Adicionar novo estágio "uploading" antes do "processing"
+- Mostrar preview SEM chamar IA (preview do CSV bruto)
+- Botão "Processar com IA" envia todas as escolas de uma vez
+- Adicionar indicador de progresso mais detalhado com estimativa de tempo
+
+Novo fluxo de estados:
+```text
+upload → preview (dados brutos) → processing (IA no backend) → done
+```
+
+**2. `supabase/functions/process-schools-csv/index.ts`**
+
+Mudanças:
+- Aceitar processamento de grandes volumes (até 180k escolas)
+- Processar IA em paralelo (Promise.all com limite de concorrência)
+- Retornar resposta inicial imediata com ID de job
+- Opção para processamento síncrono (preview) ou assíncrono (importação grande)
+- Adicionar rate limiting para evitar sobrecarga da API de IA
+- Melhorar logs de progresso
+
+Estrutura da resposta:
+```typescript
+// Para preview (até 100 escolas)
+{ preview: [...], mode: "sync" }
+
+// Para importação grande
+{ 
+  mode: "async",
+  total: 180000,
+  processed: 180000,
+  inserted: 179500,
+  errors: [...]
+}
 ```
 
 ---
 
-## Solução
+## Problema 2: Admin Não Abre
 
-Modificar o `AuthContext.tsx` para garantir que o loading só termine após a verificação do papel de admin.
+### Diagnóstico
 
-### Arquivo: `src/contexts/AuthContext.tsx`
+```text
+Fluxo atual (com bug):
+1. getSession() retorna sessão
+2. checkAdminRole(userId) ← INICIA mas não espera
+3. setIsLoading(false) ← Executa ANTES do check terminar
+4. AdminLayout: isLoading=false, isAdmin=false → REDIRECIONA
+5. checkAdminRole termina: setIsAdmin(true) ← Tarde demais!
+```
 
-**Mudanças necessárias:**
+### Solução
 
-1. **Aguardar checkAdminRole antes de setIsLoading(false)**
-   - Mudar a chamada no `getSession()` para usar `await`
-   - Garantir que `isLoading` só vire `false` após a verificação completa
+**Arquivo: `src/contexts/AuthContext.tsx`**
 
-2. **Adicionar tratamento de erro mais robusto**
-   - Garantir que `setIsLoading(false)` é chamado mesmo em caso de erro
+Mudanças:
+- Aguardar `checkAdminRole` ANTES de `setIsLoading(false)`
+- Usar função assíncrona com `try/finally` para garantir ordem
+- Manter o `setTimeout` no listener para evitar deadlock
 
-**Código atualizado:**
-
+Código corrigido:
 ```typescript
 useEffect(() => {
-  // Set up auth state listener FIRST
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
     (event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
 
-      // Defer admin check with setTimeout to avoid deadlock
       if (session?.user) {
         setTimeout(() => {
           checkAdminRole(session.user.id);
@@ -64,7 +114,7 @@ useEffect(() => {
     }
   );
 
-  // THEN check for existing session
+  // Função assíncrona para inicialização
   const initializeAuth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -72,12 +122,12 @@ useEffect(() => {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        await checkAdminRole(session.user.id);  // AGUARDA conclusão
+        await checkAdminRole(session.user.id); // AGUARDA conclusão
       }
     } catch (error) {
       console.error("Error initializing auth:", error);
     } finally {
-      setIsLoading(false);  // SEMPRE executa após tudo
+      setIsLoading(false); // Só executa APÓS o check
     }
   };
 
@@ -89,29 +139,61 @@ useEffect(() => {
 
 ---
 
-## Detalhes Técnicos
+## Resumo das Alterações
 
-### Mudança Principal
-- O `setIsLoading(false)` será movido para dentro de um bloco `finally` que só executa após o `checkAdminRole` terminar
-- Isso garante que quando o `AdminLayout` verificar `isLoading`, o `isAdmin` já terá o valor correto
-
-### Comportamento Esperado Após Correção
-1. Usuário acessa `/admin`
-2. `AdminLayout` mostra loading spinner
-3. `AuthContext` verifica sessão E papel de admin
-4. Só então `isLoading` vira `false`
-5. Se `isAdmin=true`, painel é renderizado
-6. Se `isAdmin=false`, redireciona para `/`
+| Arquivo | Tipo | Descrição |
+|---------|------|-----------|
+| `src/contexts/AuthContext.tsx` | Correção | Aguardar verificação de admin antes de liberar loading |
+| `src/components/admin/SchoolImportDialog.tsx` | Refatoração | Separar upload de processamento, processar tudo no final |
+| `supabase/functions/process-schools-csv/index.ts` | Otimização | Processar IA em paralelo com limite de concorrência |
 
 ---
 
-## Resumo das Alterações
+## Detalhes Técnicos
 
-| Arquivo | Tipo de Alteração |
-|---------|-------------------|
-| `src/contexts/AuthContext.tsx` | Correção do fluxo assíncrono |
+### Concorrência Controlada na Edge Function
 
-### Impacto
-- Zero mudanças na UI
-- Zero mudanças no banco de dados
-- Apenas correção de lógica no contexto de autenticação
+Para evitar sobrecarga da API de IA, usar um pool de workers:
+
+```typescript
+async function processInParallel<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = [];
+  const executing: Promise<void>[] = [];
+  
+  for (const item of items) {
+    const p = processor(item).then(r => { results.push(r); });
+    executing.push(p);
+    
+    if (executing.length >= concurrency) {
+      await Promise.race(executing);
+      executing.splice(executing.findIndex(e => e), 1);
+    }
+  }
+  
+  await Promise.all(executing);
+  return results;
+}
+```
+
+### Estimativa de Tempo
+
+Para 180.000 escolas com as otimizações:
+- Batches de IA: 3.600 (50 escolas cada)
+- Concorrência: 5 chamadas simultâneas
+- Tempo estimado por chamada: ~2 segundos
+- Tempo total: ~24 minutos (vs horas no modelo atual)
+
+---
+
+## Comportamento Esperado Após Implementação
+
+1. **Upload CSV**: Instantâneo (parsing local)
+2. **Preview**: Mostra primeiras escolas SEM processamento IA
+3. **Botão "Processar"**: Envia tudo para backend
+4. **Processamento**: Barra de progresso com % real
+5. **Conclusão**: Toast com resumo dos resultados
+6. **Admin**: Acesso imediato após login para usuários com role admin

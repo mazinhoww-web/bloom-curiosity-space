@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { OnboardingChecklist } from "@/components/school-admin/OnboardingChecklist";
 
 export default function SchoolAdminDashboard() {
   const { schoolId } = useAuth();
@@ -37,6 +38,51 @@ export default function SchoolAdminDashboard() {
         totalLists: listsRes.count || 0,
         officialLists: officialRes.count || 0,
         totalViews: viewsRes.count || 0,
+      };
+    },
+    enabled: !!schoolId,
+  });
+
+  // Query for onboarding status
+  const { data: onboardingStatus } = useQuery({
+    queryKey: ["school-admin-onboarding", schoolId],
+    queryFn: async () => {
+      if (!schoolId) return null;
+
+      // Check if has any lists
+      const { data: lists } = await supabase
+        .from("material_lists")
+        .select("id")
+        .eq("school_id", schoolId)
+        .eq("is_active", true);
+
+      const hasLists = (lists?.length || 0) > 0;
+      
+      // Check for official lists separately
+      const { count: officialCount } = await supabase
+        .from("material_lists")
+        .select("id", { count: "exact", head: true })
+        .eq("school_id", schoolId)
+        .eq("is_active", true)
+        .filter("is_official", "eq", true);
+      
+      const hasOfficialList = (officialCount || 0) > 0;
+
+      // Check if any list has items
+      let hasItemsReviewed = false;
+      if (hasLists && lists) {
+        const listIds = lists.map((l) => l.id);
+        const { count } = await supabase
+          .from("material_items")
+          .select("id", { count: "exact", head: true })
+          .in("list_id", listIds);
+        hasItemsReviewed = (count || 0) > 0;
+      }
+
+      return {
+        hasLists,
+        hasOfficialList,
+        hasItemsReviewed,
       };
     },
     enabled: !!schoolId,
@@ -81,11 +127,30 @@ export default function SchoolAdminDashboard() {
     },
   ];
 
+  // Show onboarding if not complete
+  const showOnboarding = onboardingStatus && (
+    !onboardingStatus.hasLists || 
+    !onboardingStatus.hasItemsReviewed || 
+    !onboardingStatus.hasOfficialList
+  );
+
   return (
     <SchoolAdminLayout 
       title="Dashboard" 
       description={school?.name || "Painel da sua escola"}
     >
+      {/* Onboarding Checklist */}
+      {showOnboarding && onboardingStatus && (
+        <div className="mb-6">
+          <OnboardingChecklist
+            hasLists={onboardingStatus.hasLists}
+            hasOfficialList={onboardingStatus.hasOfficialList}
+            hasItemsReviewed={onboardingStatus.hasItemsReviewed}
+            schoolSlug={school?.slug}
+          />
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {statCards.map((stat) => (
           <Card key={stat.title}>

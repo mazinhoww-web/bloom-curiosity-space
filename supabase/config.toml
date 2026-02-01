@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.geocode-cep]
 verify_jwt = false
+
+[functions.refresh-popular-cache]
+verify_jwt = false

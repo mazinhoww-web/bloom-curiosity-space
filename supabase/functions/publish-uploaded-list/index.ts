@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
 
     const categoryMap = new Map(categories?.map(c => [c.name.toLowerCase(), c.id]) || []);
 
-    // Create the material list
+    // Create the material list with 'published' status (not official until promoted)
     const { data: newList, error: listError } = await supabase
       .from('material_lists')
       .insert({
@@ -75,6 +75,7 @@ Deno.serve(async (req) => {
         year: uploadedList.year || new Date().getFullYear(),
         is_active: true,
         version: 1,
+        status: 'published', // Auto-transition from draft to published after AI review
       })
       .select()
       .single();

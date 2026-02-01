@@ -43,14 +43,17 @@ import { useAnalytics } from "@/hooks/use-analytics";
 import { useOwnedItems } from "@/hooks/use-owned-items";
 import { StorePurchaseButton } from "@/components/purchase/StorePurchaseButton";
 import { StoreComparisonSection } from "@/components/purchase/StoreComparisonSection";
+import { ListStatusBanner } from "@/components/lists/ListStatusBadge";
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
 }
 
+type ListStatus = "draft" | "published" | "flagged" | "official";
+
 interface MaterialListWithGrade extends MaterialList {
   grades: Grade;
   material_items: MaterialItemWithCategory[];
-  is_official?: boolean;
+  status?: ListStatus;
 }
 
 export default function SchoolDetail() {
@@ -93,7 +96,7 @@ export default function SchoolDetail() {
     },
   });
 
-  // Fetch lists with items for this school
+  // Fetch lists with items for this school - prioritize official lists
   const { data: lists, isLoading: isLoadingLists } = useQuery({
     queryKey: ["school-lists", school?.id],
     queryFn: async () => {
@@ -109,10 +112,19 @@ export default function SchoolDetail() {
         `)
         .eq("school_id", school!.id)
         .eq("is_active", true)
+        .in("status", ["published", "official"]) // Only show published and official lists
         .order("year", { ascending: false });
       
       if (error) throw error;
-      return data as MaterialListWithGrade[];
+      
+      // Sort to prioritize official lists
+      const sortedData = (data as MaterialListWithGrade[]).sort((a, b) => {
+        if (a.status === "official" && b.status !== "official") return -1;
+        if (b.status === "official" && a.status !== "official") return 1;
+        return 0;
+      });
+      
+      return sortedData;
     },
     enabled: !!school?.id,
   });
@@ -124,9 +136,15 @@ export default function SchoolDetail() {
     return grades.filter((g) => gradeIds.has(g.id));
   }, [lists, grades]);
 
-  // Get selected list
+  // Get selected list - prefer official list for the grade
   const selectedList = useMemo(() => {
     if (!lists || !selectedGradeId) return null;
+    // First try to find an official list for this grade
+    const officialList = lists.find(
+      (list) => list.grade_id === selectedGradeId && list.status === "official"
+    );
+    if (officialList) return officialList;
+    // Otherwise return any published list for this grade
     return lists.find((list) => list.grade_id === selectedGradeId);
   }, [lists, selectedGradeId]);
 
@@ -392,22 +410,11 @@ export default function SchoolDetail() {
             {/* Official badge + Cost summary + Add all button */}
             {selectedList && (
               <div className="space-y-6">
-                {/* Official List Banner */}
-                {(selectedList as any).is_official && (
-                  <div className="rounded-xl border-2 border-success bg-gradient-to-r from-success/10 to-success/5 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success text-success-foreground">
-                        <Check className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-display font-semibold text-success">Lista Oficial da Escola</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Esta é a lista oficial de materiais para {selectedList.grades?.name}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {/* Status Banner - shows for official and published lists */}
+                <ListStatusBanner 
+                  status={selectedList.status || "published"} 
+                  gradeName={selectedList.grades?.name}
+                />
 
                 {/* Cost Summary Card */}
                 <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">

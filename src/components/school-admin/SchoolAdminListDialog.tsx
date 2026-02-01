@@ -31,11 +31,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
+type ListStatus = "draft" | "published" | "flagged" | "official";
+
 const listSchema = z.object({
   grade_id: z.string().min(1, "Selecione uma série"),
   year: z.number().min(2020).max(2100),
   is_active: z.boolean(),
-  is_official: z.boolean(),
 });
 
 type ListFormData = z.infer<typeof listSchema>;
@@ -53,7 +54,7 @@ interface SchoolAdminListDialogProps {
     grade_id: string;
     year: number;
     is_active: boolean;
-    is_official: boolean;
+    status: ListStatus;
   } | null;
   grades: Grade[];
 }
@@ -75,7 +76,6 @@ export function SchoolAdminListDialog({
       grade_id: "",
       year: new Date().getFullYear(),
       is_active: true,
-      is_official: false,
     },
   });
 
@@ -85,14 +85,12 @@ export function SchoolAdminListDialog({
         grade_id: list.grade_id,
         year: list.year,
         is_active: list.is_active,
-        is_official: list.is_official,
       });
     } else {
       form.reset({
         grade_id: "",
         year: new Date().getFullYear(),
         is_active: true,
-        is_official: false,
       });
     }
   }, [list, form]);
@@ -103,7 +101,7 @@ export function SchoolAdminListDialog({
 
     try {
       if (list) {
-        // Update existing list - use raw query to handle is_official
+        // Update existing list
         const { error } = await supabase
           .from("material_lists")
           .update({
@@ -113,18 +111,10 @@ export function SchoolAdminListDialog({
           } as any)
           .eq("id", list.id);
 
-        // Update is_official separately if needed
-        if (!error && data.is_official !== list.is_official) {
-          await supabase
-            .from("material_lists")
-            .update({ is_official: data.is_official } as any)
-            .eq("id", list.id);
-        }
-
         if (error) throw error;
         toast({ title: "Lista atualizada com sucesso!" });
       } else {
-        // Create new list
+        // Create new list with draft status
         const { error } = await supabase
           .from("material_lists")
           .insert({
@@ -132,6 +122,7 @@ export function SchoolAdminListDialog({
             grade_id: data.grade_id,
             year: data.year,
             is_active: data.is_active,
+            status: "draft",
           } as any);
 
         if (error) throw error;
@@ -141,19 +132,11 @@ export function SchoolAdminListDialog({
       queryClient.invalidateQueries({ queryKey: ["school-admin-lists"] });
       onOpenChange(false);
     } catch (error: any) {
-      if (error?.message?.includes("idx_one_official_list_per_grade_school")) {
-        toast({
-          variant: "destructive",
-          title: "Já existe uma lista oficial para esta série",
-          description: "Desmarque a lista oficial atual antes de criar outra.",
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Erro ao salvar lista",
-          description: error?.message || "Tente novamente.",
-        });
-      }
+      toast({
+        variant: "destructive",
+        title: "Erro ao salvar lista",
+        description: error?.message || "Tente novamente.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -241,23 +224,24 @@ export function SchoolAdminListDialog({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="is_official"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <div>
-                    <FormLabel className="text-base">Lista Oficial</FormLabel>
-                    <p className="text-sm text-muted-foreground">
-                      Apenas uma lista oficial por série
-                    </p>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            {/* Note about status management */}
+            {list && (
+              <div className="rounded-lg border border-muted bg-muted/50 p-3 text-sm text-muted-foreground">
+                <p>
+                  <strong>Status atual:</strong>{" "}
+                  {list.status === "official"
+                    ? "Oficial"
+                    : list.status === "published"
+                    ? "Publicada"
+                    : list.status === "flagged"
+                    ? "Sinalizada"
+                    : "Rascunho"}
+                </p>
+                <p className="mt-1">
+                  Use o toggle na tabela para promover ou remover uma lista como oficial.
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button

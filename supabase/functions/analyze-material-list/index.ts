@@ -99,16 +99,79 @@ IMPORTANTE:
 - O JSON deve ser parseável diretamente
 - Liste TODOS os itens encontrados, mesmo que sejam muitos`;
 
+// Helper function to call AI provider
+async function callAI(
+  apiUrl: string, 
+  apiKey: string, 
+  model: string, 
+  imageContent: { type: string; image_url: { url: string } },
+  providerName: string
+): Promise<{ success: boolean; content?: string; error?: string; status?: number }> {
+  console.log(`Calling ${providerName} with model ${model}...`);
+  
+  try {
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(providerName === "OpenRouter" ? { "HTTP-Referer": "https://listapronta1.lovable.app" } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analise esta lista de materiais escolares e extraia TODOS os itens. Retorne APENAS JSON válido, sem markdown."
+              },
+              imageContent
+            ]
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 16384,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${providerName} API error:`, response.status, errorText);
+      return { success: false, error: errorText, status: response.status };
+    }
+
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      return { success: false, error: "Empty response from AI" };
+    }
+
+    console.log(`${providerName} response received successfully`);
+    return { success: true, content };
+  } catch (error) {
+    console.error(`${providerName} call failed:`, error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!OPENROUTER_API_KEY && !LOVABLE_API_KEY) {
+      throw new Error("No AI API keys configured (OPENROUTER_API_KEY or LOVABLE_API_KEY)");
     }
 
     const { image_base64, image_url, file_type } = await req.json() as { 
@@ -147,59 +210,76 @@ serve(async (req) => {
       };
     }
 
-    // Call the AI to analyze the image
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Analise esta lista de materiais escolares e extraia TODOS os itens. Retorne APENAS JSON válido, sem markdown."
-              },
-              imageContent
-            ]
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 16384, // Increased for larger lists
-      }),
-    });
+    let aiContent: string | null = null;
+    let usedProvider = "none";
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI API error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns minutos." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+    // Try OpenRouter first (primary)
+    if (OPENROUTER_API_KEY) {
+      const openRouterResult = await callAI(
+        "https://openrouter.ai/api/v1/chat/completions",
+        OPENROUTER_API_KEY,
+        "google/gemini-2.5-flash",
+        imageContent,
+        "OpenRouter"
+      );
+
+      if (openRouterResult.success && openRouterResult.content) {
+        aiContent = openRouterResult.content;
+        usedProvider = "OpenRouter";
+      } else {
+        console.log("OpenRouter failed, falling back to Lovable AI...");
+        
+        // Check for rate limiting or payment issues - still return error
+        if (openRouterResult.status === 429) {
+          // Try fallback instead of returning error
+          console.log("OpenRouter rate limited, trying fallback...");
+        } else if (openRouterResult.status === 402) {
+          console.log("OpenRouter payment required, trying fallback...");
+        }
       }
-      
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Créditos insuficientes. Adicione créditos ao workspace." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      throw new Error(`AI API error: ${response.status}`);
     }
 
-    const aiResult = await response.json();
-    const content = aiResult.choices?.[0]?.message?.content;
+    // Fallback to Lovable AI
+    if (!aiContent && LOVABLE_API_KEY) {
+      console.log("Using Lovable AI as fallback...");
+      
+      const lovableResult = await callAI(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        LOVABLE_API_KEY,
+        "google/gemini-2.5-flash",
+        imageContent,
+        "Lovable AI"
+      );
+
+      if (lovableResult.success && lovableResult.content) {
+        aiContent = lovableResult.content;
+        usedProvider = "Lovable AI";
+      } else {
+        // Return appropriate error based on status
+        if (lovableResult.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns minutos." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        if (lovableResult.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "Créditos insuficientes. Adicione créditos ao workspace." }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        throw new Error(`Both AI providers failed. Last error: ${lovableResult.error}`);
+      }
+    }
+
+    if (!aiContent) {
+      throw new Error("No AI provider available to process the request");
+    }
+
+    console.log(`Successfully processed with ${usedProvider}`);
+    const content = aiContent;
     
     if (!content) {
       throw new Error("Resposta vazia da IA");

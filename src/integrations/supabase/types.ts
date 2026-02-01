@@ -1201,6 +1201,7 @@ export type Database = {
         Args: { _user_id: string }
         Returns: string
       }
+      get_state_from_cep: { Args: { cep: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1238,6 +1239,32 @@ export type Database = {
           is_active: boolean
           logo_url: string
           name: string
+          slug: string
+          state: string
+          total_count: number
+        }[]
+      }
+      search_schools_by_cep_hierarchy: {
+        Args: {
+          filter_education?: string
+          filter_network?: string
+          page_number?: number
+          page_size?: number
+          user_cep: string
+          user_city?: string
+          user_state?: string
+        }
+        Returns: {
+          address: string
+          cep: string
+          city: string
+          education_types: string[]
+          id: string
+          logo_url: string
+          name: string
+          network_type: string
+          proximity_label: string
+          proximity_rank: number
           slug: string
           state: string
           total_count: number

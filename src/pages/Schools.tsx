@@ -46,7 +46,9 @@ export default function Schools() {
     isFetching, 
     debouncedQuery,
     userCoordinates,
+    userLocation,
     isGeocodingCep,
+    searchMode,
   } = useSchoolSearchGeo({
     query: searchQuery,
     filters,
@@ -56,7 +58,7 @@ export default function Schools() {
   });
 
   const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
-  const isGeoSearch = userCoordinates !== null;
+  const isCepSearchActive = searchMode === 'cep';
 
   // Track CEP searches
   useEffect(() => {
@@ -204,11 +206,18 @@ export default function Schools() {
             </div>
           ) : hasSearchCriteria && schools.length > 0 ? (
             <>
-              {/* Geo search indicator */}
-              {isGeoSearch && (
+              {/* Search mode indicator */}
+              {isCepSearchActive && (
                 <div className="mb-4 flex items-center gap-2 rounded-lg bg-primary/5 px-4 py-2 text-sm text-primary">
                   <Navigation className="h-4 w-4" />
-                  <span>Ordenado por proximidade ao CEP informado</span>
+                  <span>
+                    Ordenado por proximidade ao CEP {normalizeCep(debouncedQuery).slice(0, 5)}...
+                    {userLocation?.city && userLocation?.state && (
+                      <span className="ml-1 text-muted-foreground">
+                        ({userLocation.city}, {userLocation.state})
+                      </span>
+                    )}
+                  </span>
                 </div>
               )}
 
@@ -222,8 +231,15 @@ export default function Schools() {
                             <SchoolIcon className="h-6 w-6 text-primary transition-colors group-hover:text-primary-foreground" />
                           </div>
                           
-                          {/* Distance badge */}
-                          {school.distance_km !== null && school.distance_km !== undefined && (
+                          {/* Proximity badge */}
+                          {school.proximity_label && (
+                            <Badge variant="secondary" className="gap-1 text-xs">
+                              <Navigation className="h-3 w-3" />
+                              {school.proximity_label}
+                            </Badge>
+                          )}
+                          {/* Distance badge (fallback for geo search) */}
+                          {!school.proximity_label && school.distance_km !== null && school.distance_km !== undefined && (
                             <Badge variant="secondary" className="gap-1 text-xs">
                               <Navigation className="h-3 w-3" />
                               {school.distance_km < 1 

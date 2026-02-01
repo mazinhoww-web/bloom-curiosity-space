@@ -48,6 +48,10 @@ export function Footer() {
             <p className="mt-4 max-w-xs text-sm text-muted-foreground">
               Facilitando a vida de pais e escolas na organização de materiais escolares.
             </p>
+            <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+              <p>📧 listapronta@gmail.com</p>
+              <p>📞 (65) 9 9622-7110</p>
+            </div>
           </div>
 
           {/* Para Pais */}

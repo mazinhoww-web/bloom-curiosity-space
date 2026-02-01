@@ -8,8 +8,8 @@ import {
   Loader2, 
   Download, 
   Clock,
-  RefreshCw,
   X,
+  Zap,
 } from "lucide-react";
 import {
   Dialog,
@@ -21,7 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 
 interface SchoolImportDialogProps {
@@ -40,6 +39,7 @@ interface ImportJob {
   failed_records: number;
   current_batch: number;
   batch_size: number;
+  cursor_line: number;
   error_message: string | null;
   error_details: {
     elapsed_ms?: number;
@@ -49,18 +49,31 @@ interface ImportJob {
   completed_at: string | null;
 }
 
+interface ProcessResult {
+  done: boolean;
+  status: string;
+  cursor_line: number;
+  processed_records: number;
+  inserted_records: number;
+  skipped_records: number;
+  batch_time_ms: number;
+  total_records: number;
+  current_batch: number;
+}
+
 export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<"upload" | "processing" | "done" | "error">("upload");
   const [job, setJob] = useState<ImportJob | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollIntervalRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Poll for job status
-  const pollJobStatus = useCallback(async (jobId: string) => {
+  // Re-entrant process function - processes one batch and returns
+  const processBatch = useCallback(async (jobId: string): Promise<ProcessResult | null> => {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -72,57 +85,106 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
           "Authorization": `Bearer ${supabaseKey}`,
           "apikey": supabaseKey,
         },
-        body: JSON.stringify({ action: "status", job_id: jobId }),
+        body: JSON.stringify({ action: "process", job_id: jobId }),
+        signal: abortControllerRef.current?.signal,
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch job status");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro no processamento");
       }
 
-      const jobData = await response.json() as ImportJob;
-      setJob(jobData);
+      return await response.json() as ProcessResult;
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        return null;
+      }
+      throw error;
+    }
+  }, []);
 
-      if (jobData.status === 'completed') {
-        setStage("done");
-        queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
-        queryClient.invalidateQueries({ queryKey: ["schools-stats"] });
+  // Main processing loop - calls processBatch repeatedly until done
+  const runProcessingLoop = useCallback(async (jobId: string, initialJob: ImportJob) => {
+    setIsProcessing(true);
+    abortControllerRef.current = new AbortController();
+    
+    let currentJob = { ...initialJob };
+    
+    try {
+      while (true) {
+        const result = await processBatch(jobId);
         
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+        if (!result) {
+          // Aborted
+          break;
         }
 
-        toast({
-          title: "Importação concluída!",
-          description: `${jobData.inserted_records.toLocaleString()} escolas inseridas, ${jobData.skipped_records.toLocaleString()} ignoradas.`,
-        });
-      } else if (jobData.status === 'failed') {
-        setStage("error");
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+        // Update local state
+        currentJob = {
+          ...currentJob,
+          status: result.status as ImportJob['status'],
+          processed_records: result.processed_records,
+          inserted_records: result.inserted_records,
+          skipped_records: result.skipped_records,
+          current_batch: result.current_batch,
+          cursor_line: result.cursor_line,
+        };
+        setJob(currentJob);
+
+        if (result.done) {
+          // Fetch final job state
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+          const statusResponse = await fetch(`${supabaseUrl}/functions/v1/process-schools-csv`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${supabaseKey}`,
+              "apikey": supabaseKey,
+            },
+            body: JSON.stringify({ action: "status", job_id: jobId }),
+          });
+
+          if (statusResponse.ok) {
+            const finalJob = await statusResponse.json() as ImportJob;
+            setJob(finalJob);
+            currentJob = finalJob;
+          }
+
+          setStage("done");
+          queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+          queryClient.invalidateQueries({ queryKey: ["schools-stats"] });
+          
+          toast({
+            title: "Importação concluída!",
+            description: `${currentJob.inserted_records.toLocaleString()} escolas inseridas.`,
+          });
+          break;
         }
+
+        // Small delay between batches to prevent overwhelming
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     } catch (error) {
-      console.error("Error polling job status:", error);
+      console.error("Processing error:", error);
+      setStage("error");
+      setJob(prev => prev ? { 
+        ...prev, 
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Erro desconhecido',
+      } : null);
+      
+      toast({
+        variant: "destructive",
+        title: "Erro no processamento",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+      });
+    } finally {
+      setIsProcessing(false);
+      abortControllerRef.current = null;
     }
-  }, [queryClient, toast]);
-
-  // Start polling when we have a job
-  useEffect(() => {
-    if (job?.id && (job.status === 'queued' || job.status === 'processing')) {
-      pollIntervalRef.current = window.setInterval(() => {
-        pollJobStatus(job.id);
-      }, 2000);
-    }
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [job?.id, job?.status, pollJobStatus]);
+  }, [processBatch, queryClient, toast]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -144,16 +206,16 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     if (!file) return;
 
     setIsSubmitting(true);
-    setStage("processing");
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+      // Step 1: Upload file and create job
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/process-schools-csv`, {
+      const uploadResponse = await fetch(`${supabaseUrl}/functions/v1/process-schools-csv`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${supabaseKey}`,
@@ -162,58 +224,70 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
         body: formData,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Erro ao iniciar importação");
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.error || "Erro ao criar job");
       }
 
-      const result = await response.json();
+      const uploadResult = await uploadResponse.json();
       
-      if (result.job_id) {
-        // Initialize job state and start polling
-        setJob({
-          id: result.job_id,
-          status: 'queued',
-          file_name: file.name,
-          total_records: 0,
-          processed_records: 0,
-          inserted_records: 0,
-          skipped_records: 0,
-          failed_records: 0,
-          current_batch: 0,
-          batch_size: 2000,
-          error_message: null,
-          error_details: null,
-          started_at: null,
-          completed_at: null,
-        });
-
-        toast({
-          title: "Importação iniciada",
-          description: "O processamento está sendo feito em background.",
-        });
+      if (!uploadResult.job_id) {
+        throw new Error("Job ID não retornado");
       }
+
+      // Initialize job state
+      const initialJob: ImportJob = {
+        id: uploadResult.job_id,
+        status: 'queued',
+        file_name: file.name,
+        total_records: uploadResult.total_rows || 0,
+        processed_records: 0,
+        inserted_records: 0,
+        skipped_records: 0,
+        failed_records: 0,
+        current_batch: 0,
+        batch_size: 1500,
+        cursor_line: 0,
+        error_message: null,
+        error_details: null,
+        started_at: null,
+        completed_at: null,
+      };
+      
+      setJob(initialJob);
+      setStage("processing");
+      setIsSubmitting(false);
+
+      toast({
+        title: "Arquivo enviado",
+        description: "Iniciando processamento em batches...",
+      });
+
+      // Step 2: Start processing loop
+      runProcessingLoop(uploadResult.job_id, initialJob);
+
     } catch (error) {
-      console.error("Import error:", error);
+      console.error("Upload error:", error);
       toast({
         variant: "destructive",
-        title: "Erro na importação",
+        title: "Erro no upload",
         description: error instanceof Error ? error.message : "Erro desconhecido",
       });
       setStage("upload");
-    } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
+    // Abort any ongoing processing
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
+    
     setFile(null);
     setJob(null);
     setStage("upload");
+    setIsProcessing(false);
     onClose();
   };
 
@@ -236,6 +310,20 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
   const formatNumber = (n: number) => n.toLocaleString('pt-BR');
 
+  const estimateTimeRemaining = () => {
+    if (!job || job.processed_records === 0 || !job.started_at) return null;
+    const elapsed = Date.now() - new Date(job.started_at).getTime();
+    const recordsPerMs = job.processed_records / elapsed;
+    const remaining = job.total_records - job.processed_records;
+    const remainingMs = remaining / recordsPerMs;
+    const remainingSeconds = Math.ceil(remainingMs / 1000);
+    
+    if (remainingSeconds < 60) {
+      return `~${remainingSeconds}s restantes`;
+    }
+    return `~${Math.ceil(remainingSeconds / 60)}min restantes`;
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg">
@@ -245,7 +333,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             Importar Escolas via CSV
           </DialogTitle>
           <DialogDescription>
-            Importe milhares de escolas de forma assíncrona. Arquivos grandes são processados em background.
+            Importação reentrante para arquivos grandes (180k+ registros).
           </DialogDescription>
         </DialogHeader>
 
@@ -254,7 +342,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             <>
               {/* File Drop Zone */}
               <div
-                className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+                className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-colors cursor-pointer ${
                   file ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
                 }`}
                 onClick={() => fileInputRef.current?.click()}
@@ -315,10 +403,10 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
               {/* Info */}
               <Alert>
-                <AlertCircle className="h-4 w-4" />
+                <Zap className="h-4 w-4" />
                 <AlertDescription>
-                  O processamento é feito em batches de 2.000 registros. 
-                  Arquivos com 180k+ escolas levam alguns minutos.
+                  Processamento reentrante em batches de 1.500 registros.
+                  Suporta 180k+ escolas sem timeout.
                 </AlertDescription>
               </Alert>
 
@@ -342,7 +430,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             <div className="space-y-6 py-4">
               <div className="text-center">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                  <RefreshCw className="h-8 w-8 text-primary animate-spin" />
+                  <Zap className="h-8 w-8 text-primary animate-pulse" />
                 </div>
                 <h3 className="font-semibold">Processando...</h3>
                 <p className="text-sm text-muted-foreground">
@@ -363,12 +451,29 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
                 </div>
               </div>
 
-              {job.current_batch > 0 && (
-                <p className="text-center text-sm text-muted-foreground">
-                  <Clock className="mr-1 inline h-4 w-4" />
-                  Batch {job.current_batch} • {job.batch_size} registros por batch
-                </p>
-              )}
+              <div className="text-center space-y-1">
+                {job.current_batch > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    <Clock className="mr-1 inline h-4 w-4" />
+                    Batch {job.current_batch} • {calculateProgress()}%
+                  </p>
+                )}
+                {estimateTimeRemaining() && (
+                  <p className="text-xs text-muted-foreground">
+                    {estimateTimeRemaining()}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-center">
+                <Button 
+                  variant="outline" 
+                  onClick={handleClose}
+                  disabled={!isProcessing}
+                >
+                  Cancelar
+                </Button>
+              </div>
             </div>
           )}
 
@@ -417,6 +522,11 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
                 <p className="text-sm text-muted-foreground">
                   {job.error_message || "Ocorreu um erro durante o processamento."}
                 </p>
+                {job.processed_records > 0 && (
+                  <p className="mt-2 text-sm">
+                    Processados até o erro: {formatNumber(job.processed_records)} registros
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-2">

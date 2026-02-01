@@ -72,6 +72,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           current_batch: number | null
+          cursor_line: number | null
           error_details: Json | null
           error_message: string | null
           failed_records: number | null
@@ -93,6 +94,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           current_batch?: number | null
+          cursor_line?: number | null
           error_details?: Json | null
           error_message?: string | null
           failed_records?: number | null
@@ -114,6 +116,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           current_batch?: number | null
+          cursor_line?: number | null
           error_details?: Json | null
           error_message?: string | null
           failed_records?: number | null

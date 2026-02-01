@@ -11,6 +11,7 @@ import Auth from "./pages/Auth";
 import UploadList from "./pages/UploadList";
 import Partners from "./pages/Partners";
 import Institutions from "./pages/Institutions";
+import Brands from "./pages/Brands";
 import Dashboard from "./pages/admin/Dashboard";
 import AdminSchools from "./pages/admin/Schools";
 import AdminLists from "./pages/admin/Lists";
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/contribuir" element={<UploadList />} />
             <Route path="/parceiros" element={<Partners />} />
             <Route path="/instituicoes" element={<Institutions />} />
+            <Route path="/marcas" element={<Brands />} />
             {/* Admin routes */}
             <Route path="/admin" element={<Dashboard />} />
             <Route path="/admin/escolas" element={<AdminSchools />} />

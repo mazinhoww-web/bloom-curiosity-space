@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_provider_metrics: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          fallback_used: boolean
+          function_name: string
+          id: string
+          provider: string
+          response_time_ms: number | null
+          success: boolean
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          fallback_used?: boolean
+          function_name: string
+          id?: string
+          provider: string
+          response_time_ms?: number | null
+          success?: boolean
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          fallback_used?: boolean
+          function_name?: string
+          id?: string
+          provider?: string
+          response_time_ms?: number | null
+          success?: boolean
+        }
+        Relationships: []
+      }
       cep_coordinates: {
         Row: {
           address: string | null
@@ -1207,6 +1240,19 @@ export type Database = {
       }
     }
     Views: {
+      ai_provider_stats: {
+        Row: {
+          avg_response_time_ms: number | null
+          date: string | null
+          failed_calls: number | null
+          fallback_count: number | null
+          function_name: string | null
+          provider: string | null
+          successful_calls: number | null
+          total_calls: number | null
+        }
+        Relationships: []
+      }
       analytics_daily_summary: {
         Row: {
           cep_searches: number | null

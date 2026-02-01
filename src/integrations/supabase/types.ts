@@ -1002,6 +1002,14 @@ export type Database = {
         }
         Relationships: []
       }
+      popular_ceps: {
+        Row: {
+          cep: string | null
+          last_searched: string | null
+          search_count: number | null
+        }
+        Relationships: []
+      }
       store_recommendation_scores: {
         Row: {
           cart_clicks: number | null
@@ -1055,6 +1063,16 @@ export type Database = {
       }
     }
     Functions: {
+      get_cep_suggestions: {
+        Args: { cep_prefix: string; max_results?: number }
+        Returns: {
+          cep: string
+          city: string
+          school_count: number
+          search_count: number
+          state: string
+        }[]
+      }
       get_distinct_school_cities: {
         Args: { p_state: string }
         Returns: {
@@ -1115,6 +1133,22 @@ export type Database = {
           is_active: boolean
           logo_url: string
           name: string
+          slug: string
+          state: string
+          total_count: number
+        }[]
+      }
+      search_schools_by_proximity: {
+        Args: { page_number?: number; page_size?: number; user_cep: string }
+        Returns: {
+          address: string
+          cep: string
+          city: string
+          id: string
+          is_active: boolean
+          logo_url: string
+          name: string
+          proximity_score: number
           slug: string
           state: string
           total_count: number

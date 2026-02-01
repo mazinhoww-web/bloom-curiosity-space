@@ -387,22 +387,62 @@ export default function SchoolDetail() {
               </CardHeader>
               <CardContent>
                 {availableGrades.length > 0 ? (
-                  <Select value={selectedGradeId} onValueChange={setSelectedGradeId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Escolha a série do seu filho" />
-                    </SelectTrigger>
-                    <SelectContent>
+                  <>
+                    <Select value={selectedGradeId} onValueChange={setSelectedGradeId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Escolha a série do seu filho" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableGrades.map((grade) => (
+                          <SelectItem key={grade.id} value={grade.id}>
+                            {grade.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    {/* Available grades summary */}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="text-sm text-muted-foreground">Séries disponíveis:</span>
                       {availableGrades.map((grade) => (
-                        <SelectItem key={grade.id} value={grade.id}>
+                        <Badge 
+                          key={grade.id} 
+                          variant={grade.id === selectedGradeId ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() => setSelectedGradeId(grade.id)}
+                        >
                           {grade.name}
-                        </SelectItem>
+                        </Badge>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </div>
+                  </>
                 ) : (
-                  <p className="text-muted-foreground">
-                    Nenhuma lista de materiais disponível para esta escola.
-                  </p>
+                  /* Empty state - No lists available, clear CTA to contribute */
+                  <div className="rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/30 p-6 text-center">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                      <Plus className="h-8 w-8 text-primary" />
+                    </div>
+                    
+                    <h3 className="mb-2 font-display text-lg font-semibold text-foreground">
+                      Esta escola ainda não tem listas cadastradas
+                    </h3>
+                    
+                    <p className="mb-6 text-sm text-muted-foreground max-w-md mx-auto">
+                      Ajude outros pais! Se você tem a lista de materiais desta escola, 
+                      compartilhe conosco e facilite a vida de toda a comunidade.
+                    </p>
+                    
+                    <Link to={`/contribuir?escola=${encodeURIComponent(school.name)}&escola_id=${school.id}`}>
+                      <Button size="lg" className="gap-2">
+                        <Plus className="h-5 w-5" />
+                        Enviar lista desta escola
+                      </Button>
+                    </Link>
+                    
+                    <p className="mt-4 text-xs text-muted-foreground">
+                      É rápido, grátis e você ajuda milhares de famílias
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -676,7 +716,84 @@ export default function SchoolDetail() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Summary card */}
+            {/* Contribution CTA when no lists available */}
+            {availableGrades.length === 0 && (
+              <Card className="sticky top-24 border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-lg flex items-center gap-2">
+                    <Plus className="h-5 w-5 text-primary" />
+                    Contribua
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Você tem a lista de materiais desta escola? Compartilhe e ajude outros pais!
+                  </p>
+                  <Link to={`/contribuir?escola=${encodeURIComponent(school.name)}&escola_id=${school.id}`}>
+                    <Button className="w-full gap-2">
+                      <Plus className="h-4 w-4" />
+                      Enviar lista
+                    </Button>
+                  </Link>
+                  
+                  <div className="pt-4 border-t">
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Enquanto isso, você também pode:
+                    </p>
+                    <div className="space-y-2">
+                      <Link to="/escolas">
+                        <Button variant="outline" className="w-full justify-start gap-2" size="sm">
+                          <ArrowLeft className="h-4 w-4" />
+                          Buscar outra escola
+                        </Button>
+                      </Link>
+                      <Button 
+                        variant="ghost" 
+                        className="w-full justify-start gap-2" 
+                        size="sm"
+                        onClick={async () => {
+                          const shareText = `Procuro a lista de materiais da ${school.name}. Alguém tem?`;
+                          const shareUrl = window.location.href;
+                          const waUrl = `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${shareUrl}`)}`;
+                          window.open(waUrl, "_blank");
+                        }}
+                      >
+                        <Share2 className="h-4 w-4" />
+                        Pedir no WhatsApp
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Select grade prompt when lists exist but none selected */}
+            {availableGrades.length > 0 && !selectedList && (
+              <Card className="sticky top-24 border-2">
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-lg">Selecione uma série</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Escolha a série do seu filho para ver a lista completa de materiais.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {availableGrades.map((grade) => (
+                      <Badge 
+                        key={grade.id}
+                        variant="outline"
+                        className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors"
+                        onClick={() => setSelectedGradeId(grade.id)}
+                      >
+                        {grade.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Summary card when list is selected */}
             {selectedList && (
               <Card className="sticky top-24 border-2">
                 <CardHeader className="pb-3">

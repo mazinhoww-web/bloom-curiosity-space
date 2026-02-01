@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatCep, normalizeCep, isCepSearch } from "@/lib/school-utils";
 
 export function HeroSearch() {
   const [cep, setCep] = useState("");
@@ -10,16 +11,18 @@ export function HeroSearch() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (cep.trim()) {
-      navigate(`/escolas?cep=${cep.replace(/\D/g, "")}`);
+    const cleanCep = normalizeCep(cep);
+    if (cleanCep.length >= 5) {
+      navigate(`/escolas?cep=${cleanCep}`);
     }
   };
 
-  const formatCep = (value: string) => {
-    const numbers = value.replace(/\D/g, "");
-    if (numbers.length <= 5) return numbers;
-    return `${numbers.slice(0, 5)}-${numbers.slice(5, 8)}`;
+  const handleCepChange = (value: string) => {
+    // Format CEP as user types
+    setCep(formatCep(value));
   };
+
+  const isValidCep = isCepSearch(cep);
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-secondary py-20 md:py-28 lg:py-36">
@@ -68,9 +71,9 @@ export function HeroSearch() {
               <div className="relative flex-1">
                 <Input
                   type="text"
-                  placeholder="Digite o CEP da escola"
+                  placeholder="Digite o CEP da escola (mín. 5 dígitos)"
                   value={cep}
-                  onChange={(e) => setCep(formatCep(e.target.value))}
+                  onChange={(e) => handleCepChange(e.target.value)}
                   maxLength={9}
                   className="h-14 rounded-xl border-0 bg-white pl-5 pr-12 text-lg shadow-xl placeholder:text-muted-foreground/70 focus-visible:ring-4 focus-visible:ring-white/30"
                 />
@@ -79,12 +82,18 @@ export function HeroSearch() {
               <Button 
                 type="submit" 
                 size="lg"
-                className="h-14 rounded-xl bg-accent px-8 text-lg font-bold shadow-xl transition-all hover:scale-105 hover:bg-accent/90 hover:shadow-2xl"
+                disabled={!isValidCep}
+                className="h-14 rounded-xl bg-accent px-8 text-lg font-bold shadow-xl transition-all hover:scale-105 hover:bg-accent/90 hover:shadow-2xl disabled:opacity-50 disabled:hover:scale-100"
               >
                 Buscar escola
                 <ChevronRight className="ml-1 h-5 w-5" />
               </Button>
             </div>
+            {cep && !isValidCep && (
+              <p className="mt-2 text-sm text-white/70">
+                Digite pelo menos 5 dígitos do CEP
+              </p>
+            )}
           </form>
 
           {/* Secondary CTA */}

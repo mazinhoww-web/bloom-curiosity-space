@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Edit, Trash2, CheckCircle, Circle, Eye } from "lucide-react";
+import { Plus, Edit, Trash2 } from "lucide-react";
 import { SchoolAdminLayout } from "@/components/school-admin/SchoolAdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { SchoolAdminListDialog } from "@/components/school-admin/SchoolAdminListDialog";
-import { Link } from "react-router-dom";
+import { OfficialListCard } from "@/components/school-admin/OfficialListCard";
 
 interface ListWithGrade {
   id: string;
@@ -51,6 +51,22 @@ export default function SchoolAdminLists() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState<ListWithGrade | null>(null);
   const [deletingList, setDeletingList] = useState<ListWithGrade | null>(null);
+
+  // Fetch school info for slug
+  const { data: school } = useQuery({
+    queryKey: ["school-admin-school", schoolId],
+    queryFn: async () => {
+      if (!schoolId) return null;
+      const { data, error } = await supabase
+        .from("schools")
+        .select("slug, name")
+        .eq("id", schoolId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!schoolId,
+  });
 
   const { data: lists, isLoading } = useQuery({
     queryKey: ["school-admin-lists", schoolId],
@@ -154,8 +170,32 @@ export default function SchoolAdminLists() {
     setDialogOpen(true);
   };
 
+  // Filter official lists for the cards
+  const officialLists = lists?.filter((l) => l.is_official && l.is_active) || [];
+
   return (
     <SchoolAdminLayout title="Listas de Materiais" description="Gerencie as listas da sua escola">
+      {/* Official Lists Cards */}
+      {officialLists.length > 0 && school?.slug && (
+        <div className="mb-6 space-y-4">
+          <h2 className="font-display text-lg font-semibold flex items-center gap-2">
+            📢 Comunicação com os Pais
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {officialLists.map((list) => (
+              <OfficialListCard
+                key={list.id}
+                listId={list.id}
+                gradeName={list.grades?.name || ""}
+                year={list.year}
+                schoolSlug={school.slug}
+                gradeId={list.grade_id}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="font-display">Suas Listas</CardTitle>

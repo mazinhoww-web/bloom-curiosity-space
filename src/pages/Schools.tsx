@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { Search, School as SchoolIcon, MapPin } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { School } from "@/types/database";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 const ITEMS_PER_PAGE = 24;
 
@@ -21,6 +22,8 @@ export default function Schools() {
     city: searchParams.get("cidade") || "",
   });
   const [page, setPage] = useState(1);
+  const { trackCepSearch } = useAnalytics();
+  const lastTrackedCep = useRef<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["schools", searchQuery, filters, page],
@@ -58,6 +61,14 @@ export default function Schools() {
 
       const { data, error, count } = await query;
       if (error) throw error;
+      
+      // Track CEP search if it's a CEP query with results
+      const cleanCep = searchQuery.replace(/\D/g, "");
+      if (cleanCep.length >= 5 && cleanCep.length <= 8 && cleanCep !== lastTrackedCep.current) {
+        lastTrackedCep.current = cleanCep;
+        trackCepSearch(cleanCep, count || 0);
+      }
+      
       return { schools: data as School[], total: count || 0 };
     },
   });

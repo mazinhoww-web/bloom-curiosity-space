@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,9 +48,53 @@ const STEP_PROGRESS: Record<WizardStep, number> = {
   "thank-you": 100,
 };
 
+// Step order for determining animation direction
+const STEP_ORDER: WizardStep[] = [
+  "intro",
+  "school",
+  "input-method",
+  "upload",
+  "manual",
+  "processing",
+  "confirmation",
+  "thank-you",
+];
+
+// Animation variants
+const slideVariants = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? 100 : -100,
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (direction: number) => ({
+    x: direction < 0 ? 100 : -100,
+    opacity: 0,
+  }),
+};
+
+const fadeScaleVariants = {
+  enter: {
+    opacity: 0,
+    scale: 0.95,
+  },
+  center: {
+    opacity: 1,
+    scale: 1,
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.95,
+  },
+};
+
 export default function UploadList() {
   // Wizard state
   const [currentStep, setCurrentStep] = useState<WizardStep>("intro");
+  const [previousStep, setPreviousStep] = useState<WizardStep>("intro");
   const [selectedSchool, setSelectedSchool] = useState<SelectedSchool | null>(null);
   const [customSchoolName, setCustomSchoolName] = useState<string | null>(null);
   const [inputMethod, setInputMethod] = useState<InputMethod | null>(null);
@@ -63,6 +108,21 @@ export default function UploadList() {
     gradeName: string;
     itemsCount: number;
   } | null>(null);
+
+  // Calculate animation direction based on step order
+  const getDirection = (from: WizardStep, to: WizardStep): number => {
+    const fromIndex = STEP_ORDER.indexOf(from);
+    const toIndex = STEP_ORDER.indexOf(to);
+    return toIndex > fromIndex ? 1 : -1;
+  };
+
+  const direction = getDirection(previousStep, currentStep);
+
+  // Custom setStep that tracks previous step for animation direction
+  const goToStep = useCallback((newStep: WizardStep) => {
+    setPreviousStep(currentStep);
+    setCurrentStep(newStep);
+  }, [currentStep]);
 
   // Upload hook
   const {
@@ -93,8 +153,8 @@ export default function UploadList() {
 
   // Handlers
   const handleStart = useCallback(() => {
-    setCurrentStep("school");
-  }, []);
+    goToStep("school");
+  }, [goToStep]);
 
   const handleSchoolSelect = useCallback((school: SelectedSchool | null, customName: string | null) => {
     setSelectedSchool(school);
@@ -103,18 +163,18 @@ export default function UploadList() {
 
   const handleNextFromSchool = useCallback(() => {
     if (selectedSchool || customSchoolName) {
-      setCurrentStep("input-method");
+      goToStep("input-method");
     }
-  }, [selectedSchool, customSchoolName]);
+  }, [selectedSchool, customSchoolName, goToStep]);
 
   const handleInputMethodSelect = useCallback((method: InputMethod) => {
     setInputMethod(method);
     if (method === "manual") {
-      setCurrentStep("manual");
+      goToStep("manual");
     } else {
-      setCurrentStep("upload");
+      goToStep("upload");
     }
-  }, []);
+  }, [goToStep]);
 
   const handleProcess = useCallback(async () => {
     if (!selectedFile || !selectedGradeId) return;
@@ -134,28 +194,27 @@ export default function UploadList() {
 
       clearInterval(progressInterval);
       setUploadProgress(100);
-      setCurrentStep("processing");
+      goToStep("processing");
 
       await processUpload(upload.id);
     } catch (err) {
       console.error("Upload/process error:", err);
     }
-  }, [selectedFile, selectedGradeId, selectedSchool, customSchoolName, uploadFile, processUpload]);
+  }, [selectedFile, selectedGradeId, selectedSchool, customSchoolName, uploadFile, processUpload, goToStep]);
 
   const handleManualFinish = useCallback(() => {
     if (manualItems.length > 0) {
-      setCurrentStep("confirmation");
+      goToStep("confirmation");
     }
-  }, [manualItems.length]);
+  }, [manualItems.length, goToStep]);
 
   const handleConfirmBack = useCallback(() => {
     if (inputMethod === "manual") {
-      setCurrentStep("manual");
+      goToStep("manual");
     } else if (uploadedList?.extracted_items) {
-      // Go back to a review-like state - for now just stay
-      setCurrentStep("confirmation");
+      goToStep("confirmation");
     }
-  }, [inputMethod, uploadedList]);
+  }, [inputMethod, uploadedList, goToStep]);
 
   const handlePublish = useCallback(async () => {
     const itemsToPublish = inputMethod === "manual" 
@@ -165,9 +224,7 @@ export default function UploadList() {
     if (itemsToPublish.length === 0) return;
 
     try {
-      // For manual entry, we need to create the upload record first
       if (inputMethod === "manual" && selectedGradeId) {
-        // Create a minimal blob to represent manual entry
         const blob = new Blob([JSON.stringify(itemsToPublish)], { type: "application/json" });
         const file = new File([blob], "manual-entry.json", { type: "application/json" });
         
@@ -178,7 +235,6 @@ export default function UploadList() {
           selectedGradeId
         );
 
-        // Update the items and publish
         updateItems(itemsToPublish);
         const result = await publishList(itemsToPublish);
         
@@ -198,14 +254,15 @@ export default function UploadList() {
         });
       }
       
-      setCurrentStep("thank-you");
+      goToStep("thank-you");
     } catch (err) {
       console.error("Publish error:", err);
     }
-  }, [inputMethod, manualItems, uploadedList, publishList, selectedSchool, customSchoolName, selectedGradeId, uploadFile, updateItems, schoolDisplayName, selectedGradeName]);
+  }, [inputMethod, manualItems, uploadedList, publishList, selectedSchool, customSchoolName, selectedGradeId, uploadFile, updateItems, schoolDisplayName, selectedGradeName, goToStep]);
 
   const handleReset = useCallback(() => {
     reset();
+    setPreviousStep("intro");
     setCurrentStep("intro");
     setSelectedSchool(null);
     setCustomSchoolName(null);
@@ -220,32 +277,32 @@ export default function UploadList() {
   const handleBack = useCallback(() => {
     switch (currentStep) {
       case "school":
-        setCurrentStep("intro");
+        goToStep("intro");
         break;
       case "input-method":
-        setCurrentStep("school");
+        goToStep("school");
         break;
       case "upload":
       case "manual":
-        setCurrentStep("input-method");
+        goToStep("input-method");
         setInputMethod(null);
         break;
       case "confirmation":
         if (inputMethod === "manual") {
-          setCurrentStep("manual");
+          goToStep("manual");
         } else {
-          setCurrentStep("upload");
+          goToStep("upload");
         }
         break;
     }
-  }, [currentStep, inputMethod]);
+  }, [currentStep, inputMethod, goToStep]);
 
   // Auto-advance from processing to confirmation
   useEffect(() => {
     if (currentStep === "processing" && uploadedList?.status === "completed") {
-      setTimeout(() => setCurrentStep("confirmation"), 500);
+      setTimeout(() => goToStep("confirmation"), 500);
     }
-  }, [currentStep, uploadedList?.status]);
+  }, [currentStep, uploadedList?.status, goToStep]);
 
   const showProgressBar = currentStep !== "intro" && currentStep !== "thank-you";
   const showBackButton = ["school", "input-method", "upload", "manual"].includes(currentStep);
@@ -261,154 +318,269 @@ export default function UploadList() {
     <MainLayout>
       <div className="min-h-screen bg-gradient-to-b from-primary/5 via-background to-background py-8 md:py-12">
         <div className="container max-w-lg">
-          {/* Progress Bar */}
-          {showProgressBar && (
-            <div className="mb-6">
-              <Progress value={STEP_PROGRESS[currentStep]} className="h-2" />
-            </div>
-          )}
+          {/* Progress Bar with animation */}
+          <AnimatePresence>
+            {showProgressBar && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+                className="mb-6"
+              >
+                <Progress value={STEP_PROGRESS[currentStep]} className="h-2" />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Back Button */}
-          {showBackButton && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mb-4 gap-1 -ml-2"
-              onClick={handleBack}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Voltar
-            </Button>
-          )}
+          {/* Back Button with animation */}
+          <AnimatePresence>
+            {showBackButton && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mb-4 gap-1 -ml-2"
+                  onClick={handleBack}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Main Card */}
-          <Card className="shadow-xl border-0">
+          <Card className="shadow-xl border-0 overflow-hidden">
             <CardContent className="p-6 md:p-8">
-              {/* Intro */}
-              {currentStep === "intro" && (
-                <ContributeIntro onStart={handleStart} />
-              )}
-
-              {/* School Selection */}
-              {currentStep === "school" && (
-                <div className="space-y-6">
-                  <SchoolSelectStep
-                    onSelect={handleSchoolSelect}
-                    selectedSchool={selectedSchool}
-                    customSchoolName={customSchoolName}
-                  />
-                  <Button
-                    size="lg"
-                    className="w-full"
-                    onClick={handleNextFromSchool}
-                    disabled={!selectedSchool && !customSchoolName}
+              <AnimatePresence mode="wait" custom={direction}>
+                {/* Intro */}
+                {currentStep === "intro" && (
+                  <motion.div
+                    key="intro"
+                    custom={direction}
+                    variants={fadeScaleVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
                   >
-                    Continuar
-                  </Button>
-                </div>
-              )}
+                    <ContributeIntro onStart={handleStart} />
+                  </motion.div>
+                )}
 
-              {/* Input Method Selection */}
-              {currentStep === "input-method" && (
-                <InputMethodSelector onSelect={handleInputMethodSelect} />
-              )}
-
-              {/* File Upload */}
-              {currentStep === "upload" && inputMethod && (
-                <FileUploadStep
-                  file={selectedFile}
-                  gradeId={selectedGradeId}
-                  inputMethod={inputMethod === "camera" ? "camera" : "upload"}
-                  onFileSelect={setSelectedFile}
-                  onGradeSelect={setSelectedGradeId}
-                  onProcess={handleProcess}
-                  onBack={handleBack}
-                  isUploading={isUploading}
-                  uploadProgress={uploadProgress}
-                />
-              )}
-
-              {/* Manual Entry */}
-              {currentStep === "manual" && (
-                <div className="space-y-6">
-                  {/* Grade Selection for manual */}
-                  {!selectedGradeId && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Série / Ano *</label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={selectedGradeId || ""}
-                        onChange={(e) => setSelectedGradeId(e.target.value)}
-                      >
-                        <option value="">Selecione a série...</option>
-                        {grades?.map((grade) => (
-                          <option key={grade.id} value={grade.id}>
-                            {grade.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  
-                  {selectedGradeId && (
-                    <ManualEntryStep
-                      items={manualItems}
-                      onUpdateItems={setManualItems}
-                      onFinish={handleManualFinish}
+                {/* School Selection */}
+                {currentStep === "school" && (
+                  <motion.div
+                    key="school"
+                    custom={direction}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-6"
+                  >
+                    <SchoolSelectStep
+                      onSelect={handleSchoolSelect}
+                      selectedSchool={selectedSchool}
+                      customSchoolName={customSchoolName}
                     />
-                  )}
-                </div>
-              )}
+                    <Button
+                      size="lg"
+                      className="w-full"
+                      onClick={handleNextFromSchool}
+                      disabled={!selectedSchool && !customSchoolName}
+                    >
+                      Continuar
+                    </Button>
+                  </motion.div>
+                )}
 
-              {/* Processing */}
-              {currentStep === "processing" && (
-                <ProcessingStep
-                  progress={uploadedList?.processing_progress || 0}
-                  message={uploadedList?.processing_message || null}
-                  status={uploadedList?.status || "processing"}
-                />
-              )}
+                {/* Input Method Selection */}
+                {currentStep === "input-method" && (
+                  <motion.div
+                    key="input-method"
+                    custom={direction}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                  >
+                    <InputMethodSelector onSelect={handleInputMethodSelect} />
+                  </motion.div>
+                )}
 
-              {/* Confirmation */}
-              {currentStep === "confirmation" && (
-                <ConfirmationStep
-                  schoolName={schoolDisplayName}
-                  gradeName={selectedGradeName}
-                  items={getCurrentItems()}
-                  onBack={handleConfirmBack}
-                  onConfirm={handlePublish}
-                  isPublishing={isPublishing}
-                />
-              )}
+                {/* File Upload */}
+                {currentStep === "upload" && inputMethod && (
+                  <motion.div
+                    key="upload"
+                    custom={direction}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                  >
+                    <FileUploadStep
+                      file={selectedFile}
+                      gradeId={selectedGradeId}
+                      inputMethod={inputMethod === "camera" ? "camera" : "upload"}
+                      onFileSelect={setSelectedFile}
+                      onGradeSelect={setSelectedGradeId}
+                      onProcess={handleProcess}
+                      onBack={handleBack}
+                      isUploading={isUploading}
+                      uploadProgress={uploadProgress}
+                    />
+                  </motion.div>
+                )}
 
-              {/* Thank You */}
-              {currentStep === "thank-you" && publishResult && (
-                <ThankYouStep
-                  schoolSlug={publishResult.schoolSlug}
-                  schoolName={publishResult.schoolName}
-                  gradeName={publishResult.gradeName}
-                  itemsCount={publishResult.itemsCount}
-                  onReset={handleReset}
-                />
-              )}
+                {/* Manual Entry */}
+                {currentStep === "manual" && (
+                  <motion.div
+                    key="manual"
+                    custom={direction}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-6"
+                  >
+                    {/* Grade Selection for manual */}
+                    {!selectedGradeId && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-2"
+                      >
+                        <label className="text-sm font-medium">Série / Ano *</label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={selectedGradeId || ""}
+                          onChange={(e) => setSelectedGradeId(e.target.value)}
+                        >
+                          <option value="">Selecione a série...</option>
+                          {grades?.map((grade) => (
+                            <option key={grade.id} value={grade.id}>
+                              {grade.name}
+                            </option>
+                          ))}
+                        </select>
+                      </motion.div>
+                    )}
+                    
+                    {selectedGradeId && (
+                      <ManualEntryStep
+                        items={manualItems}
+                        onUpdateItems={setManualItems}
+                        onFinish={handleManualFinish}
+                      />
+                    )}
+                  </motion.div>
+                )}
+
+                {/* Processing */}
+                {currentStep === "processing" && (
+                  <motion.div
+                    key="processing"
+                    custom={direction}
+                    variants={fadeScaleVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.4, ease: "easeInOut" }}
+                  >
+                    <ProcessingStep
+                      progress={uploadedList?.processing_progress || 0}
+                      message={uploadedList?.processing_message || null}
+                      status={uploadedList?.status || "processing"}
+                    />
+                  </motion.div>
+                )}
+
+                {/* Confirmation */}
+                {currentStep === "confirmation" && (
+                  <motion.div
+                    key="confirmation"
+                    custom={direction}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                  >
+                    <ConfirmationStep
+                      schoolName={schoolDisplayName}
+                      gradeName={selectedGradeName}
+                      items={getCurrentItems()}
+                      onBack={handleConfirmBack}
+                      onConfirm={handlePublish}
+                      isPublishing={isPublishing}
+                    />
+                  </motion.div>
+                )}
+
+                {/* Thank You */}
+                {currentStep === "thank-you" && publishResult && (
+                  <motion.div
+                    key="thank-you"
+                    variants={fadeScaleVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                  >
+                    <ThankYouStep
+                      schoolSlug={publishResult.schoolSlug}
+                      schoolName={publishResult.schoolName}
+                      gradeName={publishResult.gradeName}
+                      itemsCount={publishResult.itemsCount}
+                      onReset={handleReset}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Error Display */}
-              {error && currentStep !== "thank-you" && (
-                <div className="mt-4 rounded-lg bg-destructive/10 p-3 text-center text-sm text-destructive">
-                  {error}
-                </div>
-              )}
+              <AnimatePresence>
+                {error && currentStep !== "thank-you" && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="mt-4 rounded-lg bg-destructive/10 p-3 text-center text-sm text-destructive"
+                  >
+                    {error}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </CardContent>
           </Card>
 
           {/* Trust Indicators */}
-          {currentStep === "intro" && (
-            <div className="mt-8 flex justify-center gap-6 text-xs text-muted-foreground">
-              <span>🔒 Sem cadastro</span>
-              <span>⚡ 2 minutos</span>
-              <span>💚 100% gratuito</span>
-            </div>
-          )}
+          <AnimatePresence>
+            {currentStep === "intro" && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="mt-8 flex justify-center gap-6 text-xs text-muted-foreground"
+              >
+                <span>🔒 Sem cadastro</span>
+                <span>⚡ 2 minutos</span>
+                <span>💚 100% gratuito</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </MainLayout>

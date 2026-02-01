@@ -1,5 +1,4 @@
 import { ArrowRight, Building2 } from "lucide-react";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 export function B2BHero() {
@@ -34,19 +33,19 @@ export function B2BHero() {
 
           {/* CTA */}
           <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
-            <Link to="/auth">
-              <Button 
-                size="lg"
-                className="h-14 rounded-xl bg-primary px-8 text-lg font-semibold shadow-xl transition-all hover:scale-105"
-              >
-                Falar com o time
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
+            <Button 
+              size="lg"
+              className="h-14 rounded-xl bg-primary px-8 text-lg font-semibold shadow-xl transition-all hover:scale-105"
+              onClick={() => document.getElementById("contato")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Falar com o time
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </Button>
             <Button 
               size="lg"
               variant="outline"
               className="h-14 rounded-xl border-muted-foreground/30 bg-transparent px-8 text-lg font-semibold text-background hover:bg-muted-foreground/10 hover:text-background"
+              onClick={() => document.getElementById("contato")?.scrollIntoView({ behavior: "smooth" })}
             >
               Ver demonstração
             </Button>

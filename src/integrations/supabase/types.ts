@@ -170,6 +170,51 @@ export type Database = {
         }
         Relationships: []
       }
+      leads: {
+        Row: {
+          company: string | null
+          created_at: string
+          email: string
+          id: string
+          lead_type: string
+          message: string | null
+          metadata: Json | null
+          name: string
+          partner_type: string | null
+          phone: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          lead_type: string
+          message?: string | null
+          metadata?: Json | null
+          name: string
+          partner_type?: string | null
+          phone?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          lead_type?: string
+          message?: string | null
+          metadata?: Json | null
+          name?: string
+          partner_type?: string | null
+          phone?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       list_status_history: {
         Row: {
           changed_by: string | null

@@ -12,13 +12,15 @@ import {
   Check,
   Copy,
   Plus,
-  Minus
+  Minus,
+  CheckCircle2
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useCart, CartItem } from "@/hooks/use-cart";
 import {
   Select,
@@ -38,7 +40,7 @@ import {
   MaterialCategory 
 } from "@/types/database";
 import { useAnalytics } from "@/hooks/use-analytics";
-
+import { useOwnedItems } from "@/hooks/use-owned-items";
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
 }
@@ -56,6 +58,7 @@ export default function SchoolDetail() {
   const [copiedLink, setCopiedLink] = useState(false);
   const { trackSchoolView, trackListView } = useAnalytics();
   const { isInCart, toggleItem, addItem } = useCart();
+  const { isOwned, toggleOwned, ownedCount, getShareableUrl, updateUrlWithOwned } = useOwnedItems();
 
   // Fetch school
   const { data: school, isLoading: isLoadingSchool } = useQuery({
@@ -155,13 +158,15 @@ export default function SchoolDetail() {
     }, {} as Record<string, { category: MaterialCategory | null; items: MaterialItemWithCategory[] }>);
   }, [selectedList]);
 
-  // Calculate total
+  // Calculate total (excluding owned items)
   const totalEstimate = useMemo(() => {
     if (!selectedList?.material_items) return 0;
-    return selectedList.material_items.reduce((sum, item) => {
-      return sum + (item.price_estimate || 0) * (item.quantity || 1);
-    }, 0);
-  }, [selectedList]);
+    return selectedList.material_items
+      .filter((item) => !isOwned(item.id))
+      .reduce((sum, item) => {
+        return sum + (item.price_estimate || 0) * (item.quantity || 1);
+      }, 0);
+  }, [selectedList, isOwned]);
 
   // Track purchase click
   const handlePurchaseClick = async (item: MaterialItem) => {
@@ -182,10 +187,10 @@ export default function SchoolDetail() {
     window.open(item.purchase_url, "_blank");
   };
 
-  // Share functions
-  const shareUrl = window.location.href;
+  // Share functions - include owned items in URL
+  const shareUrl = getShareableUrl(window.location.origin + window.location.pathname + (selectedGradeId ? `?grade=${selectedGradeId}` : ""));
   const shareText = school 
-    ? `Confira a lista de materiais da ${school.name}${selectedGradeId ? ` - ${availableGrades.find(g => g.id === selectedGradeId)?.name}` : ""}` 
+    ? `Confira a lista de materiais da ${school.name}${selectedGradeId ? ` - ${availableGrades.find(g => g.id === selectedGradeId)?.name}` : ""}${ownedCount > 0 ? ` (${ownedCount} itens já tenho)` : ""}` 
     : "";
 
   const handleShareWhatsApp = async () => {
@@ -395,81 +400,108 @@ export default function SchoolDetail() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="divide-y p-0">
-                      {items.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-foreground">
-                                {item.quantity}x {item.name}
-                              </span>
-                              {!item.is_required && (
-                                <Badge variant="outline" className="text-xs">
-                                  Opcional
-                                </Badge>
+                      {items.map((item) => {
+                        const itemOwned = isOwned(item.id);
+                        return (
+                          <div 
+                            key={item.id} 
+                            className={`flex items-center gap-3 p-4 transition-colors ${
+                              itemOwned ? "bg-muted/50" : ""
+                            }`}
+                          >
+                            {/* Checkbox "Já tenho" */}
+                            <div className="flex items-center">
+                              <Checkbox
+                                id={`owned-list-${item.id}`}
+                                checked={itemOwned}
+                                onCheckedChange={() => toggleOwned(item.id)}
+                                aria-label="Já tenho este item"
+                              />
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`font-medium ${itemOwned ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                                  {item.quantity}x {item.name}
+                                </span>
+                                {!item.is_required && (
+                                  <Badge variant="outline" className="text-xs">
+                                    Opcional
+                                  </Badge>
+                                )}
+                                {itemOwned && (
+                                  <Badge variant="secondary" className="text-xs gap-1 bg-success/10 text-success border-success/20">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Já tenho
+                                  </Badge>
+                                )}
+                              </div>
+                              {item.description && (
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  {item.description}
+                                </p>
+                              )}
+                              {item.brand_suggestion && (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Sugestão: {item.brand_suggestion}
+                                </p>
                               )}
                             </div>
-                            {item.description && (
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {item.description}
-                              </p>
-                            )}
-                            {item.brand_suggestion && (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Sugestão: {item.brand_suggestion}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {item.price_estimate && (
-                              <span className="text-sm font-medium text-foreground">
-                                R$ {(item.price_estimate * (item.quantity || 1)).toFixed(2)}
-                              </span>
-                            )}
-                            <Button
-                              size="sm"
-                              variant={isInCart(item.id) ? "default" : "outline"}
-                              className="gap-1"
-                              onClick={() => {
-                                const cartItem: CartItem = {
-                                  id: item.id,
-                                  name: item.name,
-                                  quantity: item.quantity || 1,
-                                  unit: item.unit,
-                                  price_estimate: item.price_estimate,
-                                  purchase_url: item.purchase_url,
-                                  brand_suggestion: item.brand_suggestion,
-                                  schoolId: school!.id,
-                                  schoolName: school!.name,
-                                  gradeName: selectedList!.grades?.name || "",
-                                };
-                                toggleItem(cartItem);
-                              }}
-                            >
-                              {isInCart(item.id) ? (
-                                <>
-                                  <Check className="h-4 w-4" />
-                                  <span className="hidden sm:inline">Adicionado</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="h-4 w-4" />
-                                  <span className="hidden sm:inline">Adicionar</span>
-                                </>
+                            
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {!itemOwned && item.price_estimate && (
+                                <span className="text-sm font-medium text-foreground">
+                                  R$ {(item.price_estimate * (item.quantity || 1)).toFixed(2)}
+                                </span>
                               )}
-                            </Button>
-                            {item.purchase_url && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="gap-1"
-                                onClick={() => handlePurchaseClick(item)}
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            )}
+                              {!itemOwned && (
+                                <Button
+                                  size="sm"
+                                  variant={isInCart(item.id) ? "default" : "outline"}
+                                  className="gap-1"
+                                  onClick={() => {
+                                    const cartItem: CartItem = {
+                                      id: item.id,
+                                      name: item.name,
+                                      quantity: item.quantity || 1,
+                                      unit: item.unit,
+                                      price_estimate: item.price_estimate,
+                                      purchase_url: item.purchase_url,
+                                      brand_suggestion: item.brand_suggestion,
+                                      schoolId: school!.id,
+                                      schoolName: school!.name,
+                                      gradeName: selectedList!.grades?.name || "",
+                                    };
+                                    toggleItem(cartItem);
+                                  }}
+                                >
+                                  {isInCart(item.id) ? (
+                                    <>
+                                      <Check className="h-4 w-4" />
+                                      <span className="hidden sm:inline">Adicionado</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="h-4 w-4" />
+                                      <span className="hidden sm:inline">Adicionar</span>
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {!itemOwned && item.purchase_url && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="gap-1"
+                                  onClick={() => handlePurchaseClick(item)}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </CardContent>
                   </Card>
                 ))}
@@ -508,10 +540,22 @@ export default function SchoolDetail() {
                     <span className="text-muted-foreground">Total de itens:</span>
                     <span className="font-medium">{selectedList.material_items?.length || 0}</span>
                   </div>
+                  {ownedCount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Já tenho:</span>
+                      <span className="font-medium text-success">{ownedCount} itens</span>
+                    </div>
+                  )}
+                  {ownedCount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Falta comprar:</span>
+                      <span className="font-medium">{(selectedList.material_items?.length || 0) - ownedCount} itens</span>
+                    </div>
+                  )}
                   {totalEstimate > 0 && (
                     <div className="border-t pt-4">
                       <div className="flex justify-between">
-                        <span className="font-medium">Total estimado:</span>
+                        <span className="font-medium">{ownedCount > 0 ? "Falta gastar:" : "Total estimado:"}</span>
                         <span className="text-lg font-bold text-primary">
                           R$ {totalEstimate.toFixed(2)}
                         </span>

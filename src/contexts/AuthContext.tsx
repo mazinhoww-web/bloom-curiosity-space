@@ -2,16 +2,23 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
+export type AppRole = "admin" | "moderator" | "user" | "parent" | "school_admin" | "partner";
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
+  roles: AppRole[];
   isAdmin: boolean;
   isSchoolAdmin: boolean;
+  isPartner: boolean;
+  isParent: boolean;
   schoolId: string | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithMagicLink: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  hasRole: (role: AppRole) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,8 +26,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [roles, setRoles] = useState<AppRole[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSchoolAdmin, setIsSchoolAdmin] = useState(false);
+  const [isPartner, setIsPartner] = useState(false);
+  const [isParent, setIsParent] = useState(false);
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -37,14 +47,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             checkUserRoles(session.user.id);
           }, 0);
         } else {
-          setIsAdmin(false);
-          setIsSchoolAdmin(false);
-          setSchoolId(null);
+          resetRoles();
         }
       }
     );
 
-    // Função assíncrona para inicialização - AGUARDA checkAdminRole
+    // Async initialization
     const initializeAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -57,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error("Error initializing auth:", error);
       } finally {
-        setIsLoading(false); // Só executa APÓS o check
+        setIsLoading(false);
       }
     };
 
@@ -66,30 +74,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  const resetRoles = () => {
+    setRoles([]);
+    setIsAdmin(false);
+    setIsSchoolAdmin(false);
+    setIsPartner(false);
+    setIsParent(false);
+    setSchoolId(null);
+  };
+
   const checkUserRoles = async (userId: string) => {
     try {
-      // Check admin role
-      const { data: adminData } = await supabase
-        .rpc("has_role", { _user_id: userId, _role: "admin" });
-      setIsAdmin(adminData === true);
+      // Fetch all user roles in one query
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("role, school_id")
+        .eq("user_id", userId);
 
-      // Check school_admin role and get school_id
-      const { data: schoolAdminSchoolId } = await supabase
-        .rpc("get_school_admin_school_id", { _user_id: userId });
-      
-      if (schoolAdminSchoolId) {
-        setIsSchoolAdmin(true);
-        setSchoolId(schoolAdminSchoolId);
+      if (userRoles && userRoles.length > 0) {
+        // Cast roles to AppRole (database may have more roles than TypeScript knows)
+        const roleList = userRoles.map(r => r.role as unknown as AppRole);
+        setRoles(roleList);
+        
+        // Set convenience booleans
+        setIsAdmin(roleList.includes("admin"));
+        setIsSchoolAdmin(roleList.includes("school_admin"));
+        setIsPartner(roleList.includes("partner"));
+        setIsParent(roleList.includes("parent") || roleList.includes("user"));
+        
+        // Get school_id for school admins - cast role for comparison
+        const schoolAdminRole = userRoles.find(r => (r.role as unknown as string) === "school_admin");
+        setSchoolId(schoolAdminRole?.school_id ?? null);
       } else {
+        // Default to parent role for authenticated users without explicit roles
+        setRoles(["parent"]);
+        setIsParent(true);
+        setIsAdmin(false);
         setIsSchoolAdmin(false);
+        setIsPartner(false);
         setSchoolId(null);
       }
     } catch (error) {
       console.error("Error checking user roles:", error);
-      setIsAdmin(false);
-      setIsSchoolAdmin(false);
-      setSchoolId(null);
+      resetRoles();
     }
+  };
+
+  const hasRole = (role: AppRole): boolean => {
+    return roles.includes(role) || isAdmin; // Admin has all roles
   };
 
   const signIn = async (email: string, password: string) => {
@@ -113,11 +145,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  const signInWithMagicLink = async (email: string) => {
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: redirectUrl,
+      },
+    });
+    return { error: error as Error | null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
-    setIsAdmin(false);
-    setIsSchoolAdmin(false);
-    setSchoolId(null);
+    resetRoles();
   };
 
   return (
@@ -125,13 +167,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         session,
+        roles,
         isAdmin,
         isSchoolAdmin,
+        isPartner,
+        isParent,
         schoolId,
         isLoading,
         signIn,
         signUp,
+        signInWithMagicLink,
         signOut,
+        hasRole,
       }}
     >
       {children}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -9,11 +9,15 @@ import {
   MapPin,
   Loader2,
   Upload,
+  School,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -39,39 +43,94 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { School } from "@/types/database";
+import { School as SchoolType } from "@/types/database";
 import { SchoolFormDialog } from "@/components/admin/SchoolFormDialog";
 import { SchoolImportDialog } from "@/components/admin/SchoolImportDialog";
 
+const PAGE_SIZES = [20, 50, 100];
+const DEBOUNCE_MS = 400;
+
 export default function AdminSchools() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [selectedSchool, setSelectedSchool] = useState<School | null>(null);
-  const [deleteSchool, setDeleteSchool] = useState<School | null>(null);
+  const [selectedSchool, setSelectedSchool] = useState<SchoolType | null>(null);
+  const [deleteSchool, setDeleteSchool] = useState<SchoolType | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: schools, isLoading } = useQuery({
-    queryKey: ["admin-schools", searchQuery],
+  // Debounce search
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setPage(0);
+    
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearch(value);
+    }, DEBOUNCE_MS);
+    
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  // Fetch school stats
+  const { data: stats } = useQuery({
+    queryKey: ["schools-stats"],
     queryFn: async () => {
+      const { count, error } = await supabase
+        .from("schools")
+        .select("*", { count: "exact", head: true });
+      
+      if (error) throw error;
+      return { total: count || 0 };
+    },
+    staleTime: 60000,
+  });
+
+  // Fetch schools with pagination and search
+  const { data: schoolsData, isLoading, isFetching } = useQuery({
+    queryKey: ["admin-schools", debouncedSearch, page, pageSize],
+    queryFn: async () => {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from("schools")
-        .select("*")
-        .order("name");
+        .select("*", { count: "exact" })
+        .order("name")
+        .range(from, to);
 
-      if (searchQuery.trim()) {
-        query = query.or(
-          `name.ilike.%${searchQuery}%,cep.ilike.%${searchQuery}%,city.ilike.%${searchQuery}%`
-        );
+      if (debouncedSearch.trim()) {
+        // Use trigram search for name, or exact match for CEP
+        const cleanSearch = debouncedSearch.trim();
+        const isCepSearch = /^\d+$/.test(cleanSearch.replace(/\D/g, ''));
+        
+        if (isCepSearch) {
+          query = query.ilike("cep", `%${cleanSearch.replace(/\D/g, '')}%`);
+        } else {
+          query = query.ilike("name", `%${cleanSearch}%`);
+        }
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
       if (error) throw error;
-      return data as School[];
+      
+      return {
+        schools: data as SchoolType[],
+        total: count || 0,
+      };
     },
+    placeholderData: (prev) => prev,
   });
 
   const deleteMutation = useMutation({
@@ -81,6 +140,7 @@ export default function AdminSchools() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+      queryClient.invalidateQueries({ queryKey: ["schools-stats"] });
       toast({
         title: "Escola excluída",
         description: "A escola foi removida com sucesso.",
@@ -97,7 +157,7 @@ export default function AdminSchools() {
     },
   });
 
-  const handleEdit = (school: School) => {
+  const handleEdit = (school: SchoolType) => {
     setSelectedSchool(school);
     setIsFormOpen(true);
   };
@@ -112,19 +172,58 @@ export default function AdminSchools() {
     setSelectedSchool(null);
   };
 
+  const totalPages = Math.ceil((schoolsData?.total || 0) / pageSize);
+
   return (
     <AdminLayout title="Escolas" description="Gerencie as escolas cadastradas">
+      {/* Stats Cards */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total de Escolas
+            </CardTitle>
+            <School className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {stats?.total.toLocaleString('pt-BR') || '-'}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Resultados da Busca
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {debouncedSearch 
+                ? schoolsData?.total.toLocaleString('pt-BR') || '0'
+                : '-'
+              }
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardContent className="p-4">
           <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative flex-1 sm:max-w-xs">
+            <div className="relative flex-1 sm:max-w-md">
               <Input
-                placeholder="Buscar escolas..."
+                placeholder="Buscar por nome ou CEP..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-9"
               />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              {isFetching && debouncedSearch && (
+                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              )}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setIsImportOpen(true)} className="gap-2">
@@ -138,80 +237,139 @@ export default function AdminSchools() {
             </div>
           </div>
 
-          {isLoading ? (
+          {/* Help text for search */}
+          {!debouncedSearch && (
+            <div className="mb-4 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <Search className="mx-auto mb-2 h-6 w-6" />
+              <p>Digite o nome ou CEP para buscar escolas.</p>
+              <p className="text-xs">A busca é obrigatória para visualizar os registros.</p>
+            </div>
+          )}
+
+          {debouncedSearch && isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : schools && schools.length > 0 ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Localização</TableHead>
-                    <TableHead>CEP</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[70px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {schools.map((school) => (
-                    <TableRow key={school.id}>
-                      <TableCell className="font-medium">{school.name}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4" />
-                          {school.city && school.state
-                            ? `${school.city}, ${school.state}`
-                            : "-"}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {school.cep}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={school.is_active ? "default" : "secondary"}
-                        >
-                          {school.is_active ? "Ativa" : "Inativa"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(school)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => setDeleteSchool(school)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Excluir
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+          ) : debouncedSearch && schoolsData && schoolsData.schools.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Localização</TableHead>
+                      <TableHead>CEP</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-[70px]"></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
+                  </TableHeader>
+                  <TableBody>
+                    {schoolsData.schools.map((school) => (
+                      <TableRow key={school.id}>
+                        <TableCell className="font-medium">{school.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <MapPin className="h-4 w-4" />
+                            {school.city && school.state
+                              ? `${school.city}, ${school.state}`
+                              : "-"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {school.cep}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={school.is_active ? "default" : "secondary"}
+                          >
+                            {school.is_active ? "Ativa" : "Inativa"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleEdit(school)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => setDeleteSchool(school)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination */}
+              <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Mostrando</span>
+                  <Select
+                    value={pageSize.toString()}
+                    onValueChange={(v) => {
+                      setPageSize(Number(v));
+                      setPage(0);
+                    }}
+                  >
+                    <SelectTrigger className="w-[70px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAGE_SIZES.map((size) => (
+                        <SelectItem key={size} value={size.toString()}>
+                          {size}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span>
+                    de {schoolsData.total.toLocaleString('pt-BR')} resultados
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm">
+                    Página {page + 1} de {totalPages || 1}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={page >= totalPages - 1}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : debouncedSearch ? (
             <div className="py-12 text-center">
               <p className="text-muted-foreground">
-                {searchQuery
-                  ? "Nenhuma escola encontrada com esses termos."
-                  : "Nenhuma escola cadastrada."}
+                Nenhuma escola encontrada com "{debouncedSearch}".
               </p>
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

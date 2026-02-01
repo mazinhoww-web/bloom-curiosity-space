@@ -1,6 +1,16 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload, FileText, AlertCircle, CheckCircle2, Loader2, Download, Sparkles, Zap, Clock } from "lucide-react";
+import { 
+  Upload, 
+  FileText, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2, 
+  Download, 
+  Clock,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,8 +22,6 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface SchoolImportDialogProps {
@@ -21,220 +29,38 @@ interface SchoolImportDialogProps {
   onClose: () => void;
 }
 
-interface ParsedSchool {
-  name?: string;
-  cep?: string;
-  address?: string;
-  endereco?: string;
-  city?: string;
-  cidade?: string;
-  state?: string;
-  estado?: string;
-  uf?: string;
-  phone?: string;
-  telefone?: string;
-  email?: string;
-  tipo?: string;
-  type?: string;
-  nivel?: string;
-  level?: string;
-  [key: string]: string | undefined;
-}
-
-interface ProcessedResult {
-  total: number;
-  processed: number;
-  inserted: number;
-  processingErrors: string[];
-  insertErrors: string[];
-  preview?: Array<{
-    name: string;
-    slug: string;
-    cep: string;
-    address: string | null;
-    city: string | null;
-    state: string | null;
-    school_type?: string;
-    education_level?: string;
-  }>;
-}
-
-interface SSEMessage {
-  type: "progress" | "complete" | "error";
-  stage?: string;
-  progress?: number;
-  message?: string;
-  current?: number;
-  total?: number;
-  data?: ProcessedResult;
-  error?: string;
-}
-
-function parseCSVLine(line: string): string[] {
-  const values: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      values.push(current);
-      current = "";
-    } else if (char === ";" && !inQuotes) {
-      // Suporte para CSV com separador ponto-e-vírgula
-      values.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  
-  values.push(current);
-  return values.map((v) => v.replace(/^"|"$/g, "").trim());
-}
-
-function parseCSV(content: string): { schools: ParsedSchool[]; errors: string[] } {
-  const lines = content.trim().split(/\r?\n/);
-  const schools: ParsedSchool[] = [];
-  const errors: string[] = [];
-
-  if (lines.length < 2) {
-    errors.push("O arquivo CSV deve ter pelo menos uma linha de cabeçalho e uma linha de dados.");
-    return { schools, errors };
-  }
-
-  // Detectar separador
-  const headerLine = lines[0].trim();
-  const separator = headerLine.includes(";") ? ";" : ",";
-  
-  // Parse header - aceitar vários formatos
-  const headers = headerLine.split(separator).map((h) => 
-    h.trim().toLowerCase()
-      .replace(/"/g, "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-  );
-  
-  // Mapear headers possíveis
-  const headerMap: Record<string, string> = {};
-  headers.forEach((h, i) => {
-    if (h.includes("nome") || h === "name" || h === "escola") headerMap["name"] = h;
-    if (h === "cep" || h.includes("codigo_postal") || h.includes("zip")) headerMap["cep"] = h;
-    if (h.includes("endereco") || h === "address" || h.includes("logradouro")) headerMap["address"] = h;
-    if (h.includes("cidade") || h === "city" || h.includes("municipio")) headerMap["city"] = h;
-    if (h.includes("estado") || h === "state" || h === "uf") headerMap["state"] = h;
-    if (h.includes("telefone") || h === "phone" || h.includes("fone")) headerMap["phone"] = h;
-    if (h.includes("email") || h.includes("e-mail")) headerMap["email"] = h;
-    if (h.includes("tipo") || h === "type") headerMap["type"] = h;
-    if (h.includes("nivel") || h === "level") headerMap["level"] = h;
-  });
-  
-  // Verificar campos obrigatórios
-  const hasName = headers.some(h => h.includes("nome") || h === "name" || h === "escola");
-  const hasCep = headers.some(h => h === "cep" || h.includes("codigo_postal"));
-  
-  if (!hasName || !hasCep) {
-    errors.push(`Campos obrigatórios ausentes. Necessário: nome/name e cep. Encontrados: ${headers.join(", ")}`);
-    return { schools, errors };
-  }
-
-  // Parse data rows
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    const values = parseCSVLine(line.includes(";") && !line.includes(",") ? line : line.replace(/;/g, ","));
-    
-    if (values.length < 2) {
-      continue; // Linha vazia ou incompleta
-    }
-
-    const row: ParsedSchool = {};
-    headers.forEach((header, index) => {
-      if (values[index]) {
-        row[header] = values[index];
-      }
-    });
-
-    // Mapear campos flexíveis
-    const school: ParsedSchool = {
-      name: row.name || row.nome || row.escola,
-      cep: row.cep || row.codigo_postal,
-      address: row.address || row.endereco || row.logradouro,
-      city: row.city || row.cidade || row.municipio,
-      state: row.state || row.estado || row.uf,
-      phone: row.phone || row.telefone || row.fone,
-      email: row.email || row["e-mail"],
-      type: row.type || row.tipo,
-      level: row.level || row.nivel,
-    };
-
-    if (!school.name) {
-      errors.push(`Linha ${i + 1}: nome é obrigatório`);
-      continue;
-    }
-
-    if (!school.cep) {
-      errors.push(`Linha ${i + 1}: CEP é obrigatório`);
-      continue;
-    }
-
-    // Validar CEP
-    const cleanCep = school.cep.replace(/\D/g, "");
-    if (cleanCep.length !== 8) {
-      errors.push(`Linha ${i + 1}: CEP inválido "${school.cep}" (deve ter 8 dígitos)`);
-      continue;
-    }
-
-    schools.push(school);
-  }
-
-  return { schools, errors };
-}
-
-// Estima tempo de processamento baseado na quantidade
-function estimateTime(count: number): string {
-  // ~2 segundos por batch de 50 escolas, com 5 em paralelo
-  const batchesCount = Math.ceil(count / 50);
-  const parallelBatches = Math.ceil(batchesCount / 5);
-  const seconds = parallelBatches * 2;
-  
-  if (seconds < 60) return `~${seconds} segundos`;
-  if (seconds < 3600) return `~${Math.ceil(seconds / 60)} minutos`;
-  return `~${(seconds / 3600).toFixed(1)} horas`;
+interface ImportJob {
+  id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  file_name: string;
+  total_records: number;
+  processed_records: number;
+  inserted_records: number;
+  skipped_records: number;
+  failed_records: number;
+  current_batch: number;
+  batch_size: number;
+  error_message: string | null;
+  error_details: {
+    elapsed_ms?: number;
+    elapsed_formatted?: string;
+  } | null;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [parsedSchools, setParsedSchools] = useState<ParsedSchool[]>([]);
-  const [parseErrors, setParseErrors] = useState<string[]>([]);
-  const [processedResult, setProcessedResult] = useState<ProcessedResult | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState("");
-  const [stage, setStage] = useState<"upload" | "uploading" | "preview" | "processing" | "done">("upload");
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [stage, setStage] = useState<"upload" | "processing" | "done" | "error">("upload");
+  const [job, setJob] = useState<ImportJob | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollIntervalRef = useRef<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Função para processar com SSE
-  const processWithSSE = useCallback(async (schools: ParsedSchool[], insertToDb: boolean) => {
-    setIsProcessing(true);
-    setStartTime(Date.now());
-    setProgress(0);
-    setProgressMessage("Iniciando processamento...");
-
+  // Poll for job status
+  const pollJobStatus = useCallback(async (jobId: string) => {
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -246,104 +72,57 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
           "Authorization": `Bearer ${supabaseKey}`,
           "apikey": supabaseKey,
         },
-        body: JSON.stringify({
-          schools,
-          insertToDb,
-          use_sse: true,
-        }),
+        body: JSON.stringify({ action: "status", job_id: jobId }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error("Failed to fetch job status");
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No reader available");
-      }
+      const jobData = await response.json() as ImportJob;
+      setJob(jobData);
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
+      if (jobData.status === 'completed') {
+        setStage("done");
+        queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+        queryClient.invalidateQueries({ queryKey: ["schools-stats"] });
         
-        if (done) break;
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        
-        // Parse SSE messages
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6)) as SSEMessage;
-              
-              if (data.type === "progress") {
-                setProgress(data.progress || 0);
-                setProgressMessage(data.message || "Processando...");
-              } else if (data.type === "complete" && data.data) {
-                setProcessedResult(data.data);
-                setProgress(100);
-                setStage("done");
-                queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
-                
-                const elapsed = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
-                
-                if (data.data.inserted > 0) {
-                  toast({
-                    title: "Importação concluída!",
-                    description: `${data.data.inserted.toLocaleString()} escola(s) importada(s) em ${elapsed}s.`,
-                  });
-                }
-              } else if (data.type === "error") {
-                throw new Error(data.error || "Erro desconhecido");
-              }
-            } catch (parseError) {
-              // Ignore parse errors for incomplete messages
-              console.log("Parse error (may be incomplete):", parseError);
-            }
-          }
+        toast({
+          title: "Importação concluída!",
+          description: `${jobData.inserted_records.toLocaleString()} escolas inseridas, ${jobData.skipped_records.toLocaleString()} ignoradas.`,
+        });
+      } else if (jobData.status === 'failed') {
+        setStage("error");
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
         }
       }
     } catch (error) {
-      console.error("Import error:", error);
-      toast({
-        variant: "destructive",
-        title: "Erro na importação",
-        description: error instanceof Error ? error.message : "Erro desconhecido",
-      });
-      setStage("preview");
-    } finally {
-      setIsProcessing(false);
+      console.error("Error polling job status:", error);
     }
-  }, [queryClient, toast, startTime]);
+  }, [queryClient, toast]);
 
-  // Função para preview (sem SSE, apenas 10 escolas)
-  const loadPreview = useCallback(async (schools: ParsedSchool[]) => {
-    setIsLoadingPreview(true);
-    try {
-      const sample = schools.slice(0, 10);
-      
-      const { data, error } = await supabase.functions.invoke("process-schools-csv", {
-        body: { schools: sample, insertToDb: false },
-      });
-
-      if (error) throw error;
-      
-      setProcessedResult(data as ProcessedResult);
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Erro no preview",
-        description: error instanceof Error ? error.message : "Erro desconhecido",
-      });
-    } finally {
-      setIsLoadingPreview(false);
+  // Start polling when we have a job
+  useEffect(() => {
+    if (job?.id && (job.status === 'queued' || job.status === 'processing')) {
+      pollIntervalRef.current = window.setInterval(() => {
+        pollJobStatus(job.id);
+      }, 2000);
     }
-  }, [toast]);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [job?.id, job?.status, pollJobStatus]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -359,81 +138,89 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     }
 
     setFile(selectedFile);
-    setProcessedResult(null);
-    setProgress(0);
-    setProgressMessage("");
-    setStage("uploading");
-    setUploadProgress(0);
-    setStartTime(null);
-
-    const reader = new FileReader();
-    
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const prog = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(prog);
-      }
-    };
-    
-    reader.onload = (event) => {
-      setUploadProgress(100);
-      
-      setTimeout(() => {
-        const content = event.target?.result as string;
-        const { schools, errors } = parseCSV(content);
-        setParsedSchools(schools);
-        setParseErrors(errors);
-        
-        if (schools.length > 0) {
-          setStage("preview");
-        } else {
-          setStage("upload");
-        }
-      }, 300);
-    };
-    
-    reader.onerror = () => {
-      toast({
-        variant: "destructive",
-        title: "Erro ao ler arquivo",
-        description: "Não foi possível processar o arquivo selecionado.",
-      });
-      setStage("upload");
-      setUploadProgress(0);
-    };
-    
-    reader.readAsText(selectedFile, "UTF-8");
   }, [toast]);
 
-  const handlePreview = async () => {
-    if (parsedSchools.length === 0) return;
-    loadPreview(parsedSchools);
-  };
+  const handleSubmit = async () => {
+    if (!file) return;
 
-  const handleImport = () => {
-    if (parsedSchools.length === 0) return;
+    setIsSubmitting(true);
     setStage("processing");
-    processWithSSE(parsedSchools, true);
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/process-schools-csv`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro ao iniciar importação");
+      }
+
+      const result = await response.json();
+      
+      if (result.job_id) {
+        // Initialize job state and start polling
+        setJob({
+          id: result.job_id,
+          status: 'queued',
+          file_name: file.name,
+          total_records: 0,
+          processed_records: 0,
+          inserted_records: 0,
+          skipped_records: 0,
+          failed_records: 0,
+          current_batch: 0,
+          batch_size: 2000,
+          error_message: null,
+          error_details: null,
+          started_at: null,
+          completed_at: null,
+        });
+
+        toast({
+          title: "Importação iniciada",
+          description: "O processamento está sendo feito em background.",
+        });
+      }
+    } catch (error) {
+      console.error("Import error:", error);
+      toast({
+        variant: "destructive",
+        title: "Erro na importação",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+      });
+      setStage("upload");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
     setFile(null);
-    setParsedSchools([]);
-    setParseErrors([]);
-    setProcessedResult(null);
-    setProgress(0);
-    setProgressMessage("");
-    setUploadProgress(0);
+    setJob(null);
     setStage("upload");
-    setStartTime(null);
     onClose();
   };
 
   const downloadTemplate = () => {
-    const template = `name,cep,address,city,state,phone,email,tipo,nivel
-"Escola Municipal João da Silva","12345-678","Rua das Flores, 123","São Paulo","SP","(11) 1234-5678","contato@escola.com.br","municipal","fundamental"
-"Colégio Estadual Maria Santos","87654-321","Av. Principal, 456","Rio de Janeiro","RJ","(21) 9876-5432","secretaria@colegio.edu.br","estadual","medio"
-"Centro Educacional Futuro","11223-445","Rua Nova, 789","Belo Horizonte","MG","","","particular","infantil"`;
+    const template = `nome,cep,endereco,cidade,estado,telefone,email
+"Escola Municipal João da Silva","12345678","Rua das Flores, 123","São Paulo","SP","1112345678","contato@escola.com.br"
+"Colégio Estadual Maria Santos","87654321","Av. Principal, 456","Rio de Janeiro","RJ","2198765432","secretaria@colegio.edu.br"`;
     
     const blob = new Blob([template], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
@@ -442,281 +229,207 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     link.click();
   };
 
-  const getSchoolTypeBadge = (type?: string) => {
-    if (!type) return null;
-    const colors: Record<string, string> = {
-      municipal: "bg-blue-100 text-blue-800",
-      estadual: "bg-green-100 text-green-800",
-      federal: "bg-purple-100 text-purple-800",
-      particular: "bg-amber-100 text-amber-800",
-    };
-    return (
-      <Badge className={colors[type] || "bg-gray-100 text-gray-800"}>
-        {type}
-      </Badge>
-    );
+  const calculateProgress = () => {
+    if (!job || job.total_records === 0) return 0;
+    return Math.round((job.processed_records / job.total_records) * 100);
   };
 
-  const processingInProgress = isProcessing || isLoadingPreview;
+  const formatNumber = (n: number) => n.toLocaleString('pt-BR');
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Importar Escolas via CSV com IA
+            <Upload className="h-5 w-5 text-primary" />
+            Importar Escolas via CSV
           </DialogTitle>
           <DialogDescription>
-            Faça upload de um arquivo CSV. A IA irá padronizar nomes, corrigir erros, categorizar escolas e enriquecer dados via CEP automaticamente.
+            Importe milhares de escolas de forma assíncrona. Arquivos grandes são processados em background.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto space-y-4">
-          {/* AI Features Badge */}
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="gap-1">
-              <Zap className="h-3 w-3" />
-              Padronização automática
-            </Badge>
-            <Badge variant="outline" className="gap-1">
-              <Zap className="h-3 w-3" />
-              Correção de erros
-            </Badge>
-            <Badge variant="outline" className="gap-1">
-              <Zap className="h-3 w-3" />
-              Enriquecimento via CEP
-            </Badge>
-            <Badge variant="outline" className="gap-1">
-              <Zap className="h-3 w-3" />
-              Processamento paralelo
-            </Badge>
-          </div>
-
-          {/* Template download */}
-          <div className="flex items-center justify-between rounded-lg border border-dashed p-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="h-4 w-4" />
-              <span>Baixe o modelo CSV com campos suportados</span>
-            </div>
-            <Button variant="outline" size="sm" onClick={downloadTemplate}>
-              <Download className="mr-2 h-4 w-4" />
-              Modelo
-            </Button>
-          </div>
-
-          {/* File upload */}
-          <div
-            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors hover:border-primary/50"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
-            {file ? (
-              <div className="text-center">
-                <p className="text-sm font-medium">{file.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Clique para selecionar um arquivo CSV (suporta até 180.000 escolas)
-              </p>
-            )}
-          </div>
-
-          {/* Parse errors */}
-          {parseErrors.length > 0 && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                <p className="font-medium">Erros de parsing ({parseErrors.length}):</p>
-                <ScrollArea className="max-h-24 mt-1">
-                  <ul className="list-inside list-disc text-xs">
-                    {parseErrors.slice(0, 10).map((error, i) => (
-                      <li key={i}>{error}</li>
-                    ))}
-                    {parseErrors.length > 10 && (
-                      <li>...e mais {parseErrors.length - 10} erro(s)</li>
-                    )}
-                  </ul>
-                </ScrollArea>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Uploading progress */}
-          {stage === "uploading" && (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="w-full max-w-xs space-y-4">
-                <div className="flex items-center justify-center">
-                  <Upload className="h-12 w-12 text-primary animate-pulse" />
-                </div>
-                <div className="space-y-2">
-                  <Progress value={uploadProgress} className="h-2" />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Carregando arquivo...</span>
-                    <span>{uploadProgress}%</span>
-                  </div>
-                  {file && (
-                    <p className="text-center text-sm text-muted-foreground truncate">
-                      {file.name}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Parsed count with time estimate */}
-          {parsedSchools.length > 0 && stage === "preview" && !processedResult && (
-            <Alert>
-              <CheckCircle2 className="h-4 w-4 text-success" />
-              <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <span className="font-medium">{parsedSchools.length.toLocaleString()} escola(s)</span> encontrada(s).
-                  <span className="text-muted-foreground ml-2 flex items-center gap-1 inline-flex">
-                    <Clock className="h-3 w-3" />
-                    Tempo estimado: {estimateTime(parsedSchools.length)}
-                  </span>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handlePreview}
-                  disabled={isLoadingPreview}
-                >
-                  {isLoadingPreview ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-2 h-4 w-4" />
-                  )}
-                  Ver Preview
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* AI Preview */}
-          {processedResult?.preview && processedResult.preview.length > 0 && stage === "preview" && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Preview do processamento (10 primeiras):</p>
-              <ScrollArea className="h-48 rounded-md border">
-                <div className="p-2 space-y-2">
-                  {processedResult.preview.map((school, i) => (
-                    <div key={i} className="p-2 rounded bg-muted/50 text-sm">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{school.name}</span>
-                        {getSchoolTypeBadge(school.school_type)}
-                        {school.education_level && (
-                          <Badge variant="outline" className="text-xs">
-                            {school.education_level}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {school.address && `${school.address} - `}
-                        {school.city}, {school.state} - CEP: {school.cep}
-                      </p>
+        <div className="space-y-4">
+          {stage === "upload" && (
+            <>
+              {/* File Drop Zone */}
+              <div
+                className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+                  file ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                
+                {file ? (
+                  <div className="space-y-2">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                      <FileText className="h-6 w-6 text-primary" />
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-
-          {/* Processing progress */}
-          {stage === "processing" && (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="w-full max-w-xs space-y-4">
-                <div className="flex items-center justify-center">
-                  <Sparkles className="h-12 w-12 text-primary animate-pulse" />
-                </div>
-                <div className="space-y-2">
-                  <Progress value={progress} className="h-2" />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{progressMessage || "Processando..."}</span>
-                    <span>{progress}%</span>
+                    <p className="font-medium">{file.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFile(null);
+                      }}
+                    >
+                      <X className="mr-1 h-4 w-4" />
+                      Remover
+                    </Button>
                   </div>
-                </div>
-                <p className="text-center text-xs text-muted-foreground">
-                  Processando {parsedSchools.length.toLocaleString()} escolas com IA em paralelo
-                </p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <Upload className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Clique para selecionar</p>
+                      <p className="text-sm text-muted-foreground">ou arraste o arquivo CSV</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
 
-          {/* Final result */}
-          {stage === "done" && processedResult && (
-            <div className="space-y-2">
+              {/* Template download */}
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  <span>Baixe o modelo CSV</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={downloadTemplate}>
+                  <Download className="mr-1 h-4 w-4" />
+                  Baixar
+                </Button>
+              </div>
+
+              {/* Info */}
               <Alert>
-                <CheckCircle2 className="h-4 w-4 text-success" />
+                <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  <p className="font-medium">Importação finalizada!</p>
-                  <ul className="mt-1 text-sm">
-                    <li>• Total no arquivo: {processedResult.total.toLocaleString()}</li>
-                    <li>• Processadas pela IA: {processedResult.processed.toLocaleString()}</li>
-                    <li>• Inseridas no banco: {processedResult.inserted.toLocaleString()}</li>
-                    {startTime && (
-                      <li>• Tempo total: {Math.round((Date.now() - startTime) / 1000)}s</li>
-                    )}
-                  </ul>
+                  O processamento é feito em batches de 2.000 registros. 
+                  Arquivos com 180k+ escolas levam alguns minutos.
                 </AlertDescription>
               </Alert>
 
-              {(processedResult.processingErrors.length > 0 || processedResult.insertErrors.length > 0) && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <p className="font-medium">
-                      {processedResult.processingErrors.length + processedResult.insertErrors.length} erro(s):
-                    </p>
-                    <ScrollArea className="max-h-24 mt-1">
-                      <ul className="list-inside list-disc text-xs">
-                        {[...processedResult.processingErrors, ...processedResult.insertErrors]
-                          .slice(0, 10)
-                          .map((error, i) => (
-                            <li key={i}>{error}</li>
-                          ))}
-                        {processedResult.processingErrors.length + processedResult.insertErrors.length > 10 && (
-                          <li>
-                            ...e mais{" "}
-                            {processedResult.processingErrors.length + processedResult.insertErrors.length - 10}{" "}
-                            erro(s)
-                          </li>
-                        )}
-                      </ul>
-                    </ScrollArea>
-                  </AlertDescription>
-                </Alert>
+              {/* Actions */}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleClose}>
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={handleSubmit} 
+                  disabled={!file || isSubmitting}
+                >
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Iniciar Importação
+                </Button>
+              </div>
+            </>
+          )}
+
+          {stage === "processing" && job && (
+            <div className="space-y-6 py-4">
+              <div className="text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <RefreshCw className="h-8 w-8 text-primary animate-spin" />
+                </div>
+                <h3 className="font-semibold">Processando...</h3>
+                <p className="text-sm text-muted-foreground">
+                  {job.file_name}
+                </p>
+              </div>
+
+              <Progress value={calculateProgress()} className="h-3" />
+
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-2xl font-bold">{formatNumber(job.processed_records)}</p>
+                  <p className="text-xs text-muted-foreground">de {formatNumber(job.total_records)} processados</p>
+                </div>
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-2xl font-bold text-success">{formatNumber(job.inserted_records)}</p>
+                  <p className="text-xs text-muted-foreground">inseridos</p>
+                </div>
+              </div>
+
+              {job.current_batch > 0 && (
+                <p className="text-center text-sm text-muted-foreground">
+                  <Clock className="mr-1 inline h-4 w-4" />
+                  Batch {job.current_batch} • {job.batch_size} registros por batch
+                </p>
               )}
             </div>
           )}
-        </div>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose} disabled={processingInProgress}>
-            {stage === "done" ? "Fechar" : "Cancelar"}
-          </Button>
-          {stage === "preview" && parsedSchools.length > 0 && (
-            <Button
-              onClick={handleImport}
-              disabled={processingInProgress}
-            >
-              {processingInProgress && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              <Sparkles className="mr-2 h-4 w-4" />
-              Importar {parsedSchools.length.toLocaleString()} escola(s)
-            </Button>
+          {stage === "done" && job && (
+            <div className="space-y-6 py-4">
+              <div className="text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10">
+                  <CheckCircle2 className="h-8 w-8 text-success" />
+                </div>
+                <h3 className="font-semibold text-success">Importação Concluída!</h3>
+                {job.error_details?.elapsed_formatted && (
+                  <p className="text-sm text-muted-foreground">
+                    Tempo total: {job.error_details.elapsed_formatted}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-xl font-bold">{formatNumber(job.total_records)}</p>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                </div>
+                <div className="rounded-lg bg-success/10 p-3">
+                  <p className="text-xl font-bold text-success">{formatNumber(job.inserted_records)}</p>
+                  <p className="text-xs text-muted-foreground">Inseridos</p>
+                </div>
+                <div className="rounded-lg bg-muted p-3">
+                  <p className="text-xl font-bold text-muted-foreground">{formatNumber(job.skipped_records)}</p>
+                  <p className="text-xs text-muted-foreground">Ignorados</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleClose}>Fechar</Button>
+              </div>
+            </div>
+          )}
+
+          {stage === "error" && job && (
+            <div className="space-y-6 py-4">
+              <div className="text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+                  <AlertCircle className="h-8 w-8 text-destructive" />
+                </div>
+                <h3 className="font-semibold text-destructive">Erro na Importação</h3>
+                <p className="text-sm text-muted-foreground">
+                  {job.error_message || "Ocorreu um erro durante o processamento."}
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleClose}>Fechar</Button>
+                <Button onClick={() => {
+                  setStage("upload");
+                  setJob(null);
+                  setFile(null);
+                }}>
+                  Tentar Novamente
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </DialogContent>

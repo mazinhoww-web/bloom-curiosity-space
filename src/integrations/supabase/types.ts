@@ -65,6 +65,72 @@ export type Database = {
         }
         Relationships: []
       }
+      import_jobs: {
+        Row: {
+          batch_size: number | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          current_batch: number | null
+          error_details: Json | null
+          error_message: string | null
+          failed_records: number | null
+          file_name: string
+          file_path: string | null
+          id: string
+          inserted_records: number | null
+          job_type: string
+          processed_records: number | null
+          skipped_records: number | null
+          started_at: string | null
+          status: string
+          total_records: number | null
+          updated_at: string
+        }
+        Insert: {
+          batch_size?: number | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_batch?: number | null
+          error_details?: Json | null
+          error_message?: string | null
+          failed_records?: number | null
+          file_name: string
+          file_path?: string | null
+          id?: string
+          inserted_records?: number | null
+          job_type?: string
+          processed_records?: number | null
+          skipped_records?: number | null
+          started_at?: string | null
+          status?: string
+          total_records?: number | null
+          updated_at?: string
+        }
+        Update: {
+          batch_size?: number | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_batch?: number | null
+          error_details?: Json | null
+          error_message?: string | null
+          failed_records?: number | null
+          file_name?: string
+          file_path?: string | null
+          id?: string
+          inserted_records?: number | null
+          job_type?: string
+          processed_records?: number | null
+          skipped_records?: number | null
+          started_at?: string | null
+          status?: string
+          total_records?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       list_view_events: {
         Row: {
           grade_id: string
@@ -706,6 +772,8 @@ export type Database = {
         Args: { _school_id: string; _user_id: string }
         Returns: boolean
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"

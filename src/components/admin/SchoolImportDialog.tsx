@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Upload, FileText, AlertCircle, CheckCircle2, Loader2, Download, Sparkles, Zap } from "lucide-react";
+import { Upload, FileText, AlertCircle, CheckCircle2, Loader2, Download, Sparkles, Zap, Clock } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -189,6 +189,18 @@ function parseCSV(content: string): { schools: ParsedSchool[]; errors: string[] 
   return { schools, errors };
 }
 
+// Estima tempo de processamento baseado na quantidade
+function estimateTime(count: number): string {
+  // ~2 segundos por batch de 50 escolas, com 5 em paralelo
+  const batchesCount = Math.ceil(count / 50);
+  const parallelBatches = Math.ceil(batchesCount / 5);
+  const seconds = parallelBatches * 2;
+  
+  if (seconds < 60) return `~${seconds} segundos`;
+  if (seconds < 3600) return `~${Math.ceil(seconds / 60)} minutos`;
+  return `~${(seconds / 3600).toFixed(1)} horas`;
+}
+
 export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsedSchools, setParsedSchools] = useState<ParsedSchool[]>([]);
@@ -196,64 +208,39 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
   const [processedResult, setProcessedResult] = useState<ProcessedResult | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<"upload" | "preview" | "processing" | "done">("upload");
+  const [startTime, setStartTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const CHUNK_SIZE = 500; // Processar 500 escolas por vez
-
+  // Mutation para processar TODAS as escolas de uma vez
   const processMutation = useMutation({
     mutationFn: async ({ schools, insertToDb }: { schools: ParsedSchool[]; insertToDb: boolean }) => {
-      const totalChunks = Math.ceil(schools.length / CHUNK_SIZE);
-      let totalProcessed = 0;
-      let totalInserted = 0;
-      const allProcessingErrors: string[] = [];
-      const allInsertErrors: string[] = [];
-      let lastPreview: ProcessedResult["preview"] = [];
+      setStartTime(Date.now());
+      
+      // Enviar TODAS as escolas de uma vez para o backend
+      const { data, error } = await supabase.functions.invoke("process-schools-csv", {
+        body: { schools, insertToDb },
+      });
 
-      for (let i = 0; i < schools.length; i += CHUNK_SIZE) {
-        const chunk = schools.slice(i, i + CHUNK_SIZE);
-        const chunkNumber = Math.floor(i / CHUNK_SIZE) + 1;
-        
-        setProgress(Math.round((chunkNumber / totalChunks) * 100));
-
-        const { data, error } = await supabase.functions.invoke("process-schools-csv", {
-          body: { schools: chunk, insertToDb },
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        const result = data as ProcessedResult;
-        totalProcessed += result.processed;
-        totalInserted += result.inserted;
-        allProcessingErrors.push(...result.processingErrors);
-        allInsertErrors.push(...result.insertErrors);
-        
-        if (result.preview && result.preview.length > 0) {
-          lastPreview = result.preview;
-        }
+      if (error) {
+        throw error;
       }
 
-      return {
-        total: schools.length,
-        processed: totalProcessed,
-        inserted: totalInserted,
-        processingErrors: allProcessingErrors,
-        insertErrors: allInsertErrors,
-        preview: lastPreview,
-      };
+      return data as ProcessedResult;
     },
     onSuccess: (result) => {
       setProcessedResult(result);
+      setProgress(100);
       setStage("done");
       queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+      
+      const elapsed = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
       
       if (result.inserted > 0) {
         toast({
           title: "Importação concluída!",
-          description: `${result.inserted.toLocaleString()} escola(s) importada(s) com sucesso.`,
+          description: `${result.inserted.toLocaleString()} escola(s) importada(s) em ${elapsed}s.`,
         });
       }
     },
@@ -265,6 +252,33 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
         description: error instanceof Error ? error.message : "Erro desconhecido",
       });
       setStage("preview");
+    },
+  });
+
+  // Mutation para preview (apenas 10 escolas)
+  const previewMutation = useMutation({
+    mutationFn: async (schools: ParsedSchool[]) => {
+      const sample = schools.slice(0, 10);
+      
+      const { data, error } = await supabase.functions.invoke("process-schools-csv", {
+        body: { schools: sample, insertToDb: false },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return data as ProcessedResult;
+    },
+    onSuccess: (result) => {
+      setProcessedResult(result);
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Erro no preview",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+      });
     },
   });
 
@@ -285,6 +299,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     setProcessedResult(null);
     setProgress(0);
     setStage("upload");
+    setStartTime(null);
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -302,35 +317,13 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
   const handlePreview = async () => {
     if (parsedSchools.length === 0) return;
-    
-    setStage("processing");
-    setProgress(0);
-    
-    // Processar apenas uma amostra para preview
-    const sample = parsedSchools.slice(0, 10);
-    
-    const { data, error } = await supabase.functions.invoke("process-schools-csv", {
-      body: { schools: sample, insertToDb: false },
-    });
-
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Erro no preview",
-        description: error.message,
-      });
-      setStage("preview");
-      return;
-    }
-
-    setProcessedResult(data as ProcessedResult);
-    setStage("preview");
+    previewMutation.mutate(parsedSchools);
   };
 
   const handleImport = () => {
     if (parsedSchools.length === 0) return;
     setStage("processing");
-    setProgress(0);
+    setProgress(10); // Mostra que iniciou
     processMutation.mutate({ schools: parsedSchools, insertToDb: true });
   };
 
@@ -341,6 +334,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     setProcessedResult(null);
     setProgress(0);
     setStage("upload");
+    setStartTime(null);
     onClose();
   };
 
@@ -372,6 +366,8 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
     );
   };
 
+  const isProcessing = processMutation.isPending || previewMutation.isPending;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -402,7 +398,7 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             </Badge>
             <Badge variant="outline" className="gap-1">
               <Zap className="h-3 w-3" />
-              Categorização
+              Processamento paralelo
             </Badge>
           </div>
 
@@ -465,15 +461,30 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
             </Alert>
           )}
 
-          {/* Parsed count */}
+          {/* Parsed count with time estimate */}
           {parsedSchools.length > 0 && stage === "preview" && !processedResult && (
             <Alert>
               <CheckCircle2 className="h-4 w-4 text-success" />
-              <AlertDescription className="flex items-center justify-between">
-                <span>{parsedSchools.length.toLocaleString()} escola(s) encontrada(s) no arquivo.</span>
-                <Button variant="outline" size="sm" onClick={handlePreview}>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Ver Preview com IA
+              <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <span className="font-medium">{parsedSchools.length.toLocaleString()} escola(s)</span> encontrada(s).
+                  <span className="text-muted-foreground ml-2 flex items-center gap-1 inline-flex">
+                    <Clock className="h-3 w-3" />
+                    Tempo estimado: {estimateTime(parsedSchools.length)}
+                  </span>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handlePreview}
+                  disabled={previewMutation.isPending}
+                >
+                  {previewMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Ver Preview
                 </Button>
               </AlertDescription>
             </Alert>
@@ -509,17 +520,17 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
           {/* Processing progress */}
           {stage === "processing" && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Progress value={progress} className="h-2" />
-              <p className="text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Processando com IA... {progress}%
-                {parsedSchools.length > CHUNK_SIZE && (
-                  <span className="text-xs">
-                    (em lotes de {CHUNK_SIZE})
-                  </span>
-                )}
-              </p>
+              <div className="text-center space-y-1">
+                <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processando {parsedSchools.length.toLocaleString()} escolas com IA...
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  O processamento ocorre em paralelo no servidor. Por favor, aguarde.
+                </p>
+              </div>
             </div>
           )}
 
@@ -534,6 +545,9 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
                     <li>• Total no arquivo: {processedResult.total.toLocaleString()}</li>
                     <li>• Processadas pela IA: {processedResult.processed.toLocaleString()}</li>
                     <li>• Inseridas no banco: {processedResult.inserted.toLocaleString()}</li>
+                    {startTime && (
+                      <li>• Tempo total: {Math.round((Date.now() - startTime) / 1000)}s</li>
+                    )}
                   </ul>
                 </AlertDescription>
               </Alert>
@@ -570,15 +584,15 @@ export function SchoolImportDialog({ open, onClose }: SchoolImportDialogProps) {
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
             {stage === "done" ? "Fechar" : "Cancelar"}
           </Button>
           {stage === "preview" && parsedSchools.length > 0 && (
             <Button
               onClick={handleImport}
-              disabled={processMutation.isPending}
+              disabled={isProcessing}
             >
-              {processMutation.isPending && (
+              {isProcessing && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               <Sparkles className="mr-2 h-4 w-4" />

@@ -4,6 +4,7 @@ import {
   School,
   FileText,
   BarChart3,
+  Users,
   LogOut,
   GraduationCap,
   Menu,
@@ -46,6 +47,11 @@ const menuItems = [
     title: "Analytics",
     url: "/admin/analytics",
     icon: BarChart3,
+  },
+  {
+    title: "Leads",
+    url: "/admin/leads",
+    icon: Users,
   },
 ];
 

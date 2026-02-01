@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
+  isSchoolAdmin: boolean;
+  schoolId: string | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -18,6 +20,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSchoolAdmin, setIsSchoolAdmin] = useState(false);
+  const [schoolId, setSchoolId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -27,13 +31,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
 
-        // Defer admin check with setTimeout to avoid deadlock
+        // Defer role checks with setTimeout to avoid deadlock
         if (session?.user) {
           setTimeout(() => {
-            checkAdminRole(session.user.id);
+            checkUserRoles(session.user.id);
           }, 0);
         } else {
           setIsAdmin(false);
+          setIsSchoolAdmin(false);
+          setSchoolId(null);
         }
       }
     );
@@ -46,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          await checkAdminRole(session.user.id); // AGUARDA conclusão
+          await checkUserRoles(session.user.id);
         }
       } catch (error) {
         console.error("Error initializing auth:", error);
@@ -60,17 +66,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkAdminRole = async (userId: string) => {
+  const checkUserRoles = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Check admin role
+      const { data: adminData } = await supabase
         .rpc("has_role", { _user_id: userId, _role: "admin" });
+      setIsAdmin(adminData === true);
+
+      // Check school_admin role and get school_id
+      const { data: schoolAdminSchoolId } = await supabase
+        .rpc("get_school_admin_school_id", { _user_id: userId });
       
-      if (!error) {
-        setIsAdmin(data === true);
+      if (schoolAdminSchoolId) {
+        setIsSchoolAdmin(true);
+        setSchoolId(schoolAdminSchoolId);
+      } else {
+        setIsSchoolAdmin(false);
+        setSchoolId(null);
       }
     } catch (error) {
-      console.error("Error checking admin role:", error);
+      console.error("Error checking user roles:", error);
       setIsAdmin(false);
+      setIsSchoolAdmin(false);
+      setSchoolId(null);
     }
   };
 
@@ -98,6 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     setIsAdmin(false);
+    setIsSchoolAdmin(false);
+    setSchoolId(null);
   };
 
   return (
@@ -106,6 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         session,
         isAdmin,
+        isSchoolAdmin,
+        schoolId,
         isLoading,
         signIn,
         signUp,

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Brain, CheckCircle2, Loader2 } from "lucide-react";
+import { Brain, CheckCircle2, Loader2, AlertTriangle, PenLine } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
 interface ProcessingStepProps {
   progress: number;
   message: string | null;
   status: string;
+  extractedItemsCount?: number;
+  onManualEntry?: () => void;
 }
 
 const PROCESSING_MESSAGES = [
@@ -16,7 +19,13 @@ const PROCESSING_MESSAGES = [
   "Finalizando análise...",
 ];
 
-export function ProcessingStep({ progress, message, status }: ProcessingStepProps) {
+export function ProcessingStep({ 
+  progress, 
+  message, 
+  status, 
+  extractedItemsCount = 0,
+  onManualEntry 
+}: ProcessingStepProps) {
   const [currentMessage, setCurrentMessage] = useState(0);
 
   // Rotate through messages while processing
@@ -33,6 +42,7 @@ export function ProcessingStep({ progress, message, status }: ProcessingStepProp
   const displayMessage = message || PROCESSING_MESSAGES[currentMessage];
   const isComplete = status === "completed";
   const isFailed = status === "failed";
+  const hasNoItems = isComplete && extractedItemsCount === 0;
 
   return (
     <div className="space-y-8 text-center">
@@ -41,10 +51,10 @@ export function ProcessingStep({ progress, message, status }: ProcessingStepProp
         {/* Outer ring animation */}
         <div
           className={`absolute inset-0 rounded-full border-4 ${
-            isComplete
+            isComplete && !hasNoItems
               ? "border-success"
-              : isFailed
-              ? "border-destructive"
+              : isFailed || hasNoItems
+              ? "border-amber-500"
               : "border-primary/30 animate-pulse"
           }`}
         />
@@ -52,17 +62,17 @@ export function ProcessingStep({ progress, message, status }: ProcessingStepProp
         {/* Inner circle with icon */}
         <div
           className={`absolute inset-2 flex items-center justify-center rounded-full ${
-            isComplete
+            isComplete && !hasNoItems
               ? "bg-success/10"
-              : isFailed
-              ? "bg-destructive/10"
+              : isFailed || hasNoItems
+              ? "bg-amber-500/10"
               : "bg-primary/10"
           }`}
         >
-          {isComplete ? (
+          {isComplete && !hasNoItems ? (
             <CheckCircle2 className="h-10 w-10 text-success" />
-          ) : isFailed ? (
-            <span className="text-3xl">❌</span>
+          ) : isFailed || hasNoItems ? (
+            <AlertTriangle className="h-10 w-10 text-amber-500" />
           ) : (
             <Brain className="h-10 w-10 text-primary animate-pulse" />
           )}
@@ -79,33 +89,39 @@ export function ProcessingStep({ progress, message, status }: ProcessingStepProp
       {/* Title */}
       <div>
         <h2 className="font-display text-2xl font-bold">
-          {isComplete
+          {isComplete && !hasNoItems
             ? "Análise concluída!"
+            : hasNoItems
+            ? "Nenhum item encontrado"
             : isFailed
             ? "Falha na análise"
             : "Processando com IA..."}
         </h2>
         <p className="mt-2 text-muted-foreground">
-          {displayMessage}
+          {hasNoItems 
+            ? "A IA não conseguiu extrair itens da lista. Você pode adicionar os itens manualmente."
+            : displayMessage}
         </p>
       </div>
 
       {/* Progress Bar */}
-      <div className="space-y-2">
-        <Progress
-          value={progress}
-          className={`h-3 ${
-            isComplete
-              ? "[&>div]:bg-success"
-              : isFailed
-              ? "[&>div]:bg-destructive"
-              : ""
-          }`}
-        />
-        <p className="text-sm text-muted-foreground">
-          {progress}% concluído
-        </p>
-      </div>
+      {!hasNoItems && (
+        <div className="space-y-2">
+          <Progress
+            value={progress}
+            className={`h-3 ${
+              isComplete
+                ? "[&>div]:bg-success"
+                : isFailed
+                ? "[&>div]:bg-destructive"
+                : ""
+            }`}
+          />
+          <p className="text-sm text-muted-foreground">
+            {progress}% concluído
+          </p>
+        </div>
+      )}
 
       {/* Processing steps indicator */}
       {!isComplete && !isFailed && (
@@ -120,6 +136,25 @@ export function ProcessingStep({ progress, message, status }: ProcessingStepProp
               }`}
             />
           ))}
+        </div>
+      )}
+
+      {/* Manual Entry Fallback */}
+      {(isFailed || hasNoItems) && onManualEntry && (
+        <div className="space-y-4 pt-4">
+          <div className="rounded-lg bg-muted/50 p-4">
+            <p className="text-sm text-muted-foreground">
+              Não se preocupe! Você pode adicionar os itens da lista manualmente.
+            </p>
+          </div>
+          <Button
+            size="lg"
+            className="w-full gap-2"
+            onClick={onManualEntry}
+          >
+            <PenLine className="h-4 w-4" />
+            Adicionar itens manualmente
+          </Button>
         </div>
       )}
     </div>

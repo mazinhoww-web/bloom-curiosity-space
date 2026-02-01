@@ -274,6 +274,12 @@ export default function UploadList() {
     setPublishResult(null);
   }, [reset]);
 
+  // Handler for manual entry fallback when AI fails
+  const handleManualFallback = useCallback(() => {
+    setInputMethod("manual");
+    goToStep("manual");
+  }, [goToStep]);
+
   const handleBack = useCallback(() => {
     switch (currentStep) {
       case "school":
@@ -297,12 +303,16 @@ export default function UploadList() {
     }
   }, [currentStep, inputMethod, goToStep]);
 
-  // Auto-advance from processing to confirmation
+  // Auto-advance from processing to confirmation (only if items were extracted)
   useEffect(() => {
     if (currentStep === "processing" && uploadedList?.status === "completed") {
-      setTimeout(() => goToStep("confirmation"), 500);
+      const items = uploadedList?.extracted_items || [];
+      if (items.length > 0) {
+        setTimeout(() => goToStep("confirmation"), 500);
+      }
+      // If no items, stay on processing step to show fallback option
     }
-  }, [currentStep, uploadedList?.status, goToStep]);
+  }, [currentStep, uploadedList?.status, uploadedList?.extracted_items, goToStep]);
 
   const showProgressBar = currentStep !== "intro" && currentStep !== "thank-you";
   const showBackButton = ["school", "input-method", "upload", "manual"].includes(currentStep);
@@ -502,6 +512,8 @@ export default function UploadList() {
                       progress={uploadedList?.processing_progress || 0}
                       message={uploadedList?.processing_message || null}
                       status={uploadedList?.status || "processing"}
+                      extractedItemsCount={(uploadedList?.extracted_items || []).length}
+                      onManualEntry={handleManualFallback}
                     />
                   </motion.div>
                 )}

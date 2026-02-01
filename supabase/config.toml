@@ -1,1 +1,4 @@
 project_id = "qhzncyuxyihybjsytfmc"
+
+[functions.process-schools-csv]
+verify_jwt = false

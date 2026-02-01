@@ -120,7 +120,7 @@ export function InstitutionContactForm() {
               <Input
                 id="inst-phone"
                 type="tel"
-                placeholder="(11) 99999-9999"
+                placeholder="(65) 9 9622-7110"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               />

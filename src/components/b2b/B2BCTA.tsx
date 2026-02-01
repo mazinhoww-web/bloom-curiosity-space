@@ -48,9 +48,9 @@ export function B2BCTA() {
 
             {/* Contact Info */}
             <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
-              <span>📧 contato@listaescolar.com.br</span>
+              <span>📧 listapronta@gmail.com</span>
               <span className="hidden sm:inline">•</span>
-              <span>📞 (11) 99999-9999</span>
+              <span>📞 (65) 9 9622-7110</span>
             </div>
           </div>
 

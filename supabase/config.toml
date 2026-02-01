@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.resolve-link]
 verify_jwt = false
+
+[functions.store-carts]
+verify_jwt = false

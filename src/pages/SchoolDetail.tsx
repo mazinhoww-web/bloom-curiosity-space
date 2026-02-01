@@ -42,6 +42,7 @@ import {
 import { useAnalytics } from "@/hooks/use-analytics";
 import { useOwnedItems } from "@/hooks/use-owned-items";
 import { StorePurchaseButton } from "@/components/purchase/StorePurchaseButton";
+import { StoreComparisonSection } from "@/components/purchase/StoreComparisonSection";
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
 }
@@ -507,6 +508,13 @@ export default function SchoolDetail() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Store Comparison Section */}
+                <StoreComparisonSection 
+                  listId={selectedList?.id} 
+                  schoolId={school?.id} 
+                />
+
                 {Object.entries(itemsByCategory).map(([categoryName, { category, items }]) => (
                   <Card key={categoryName} className="overflow-hidden">
                     <CardHeader className="bg-muted/50">

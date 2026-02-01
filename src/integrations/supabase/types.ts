@@ -47,6 +47,39 @@ export type Database = {
         }
         Relationships: []
       }
+      cache_refresh_logs: {
+        Row: {
+          duration_ms: number | null
+          error_message: string | null
+          executed_at: string
+          id: string
+          lists_result: string | null
+          schools_result: string | null
+          success: boolean
+          triggered_by: string | null
+        }
+        Insert: {
+          duration_ms?: number | null
+          error_message?: string | null
+          executed_at?: string
+          id?: string
+          lists_result?: string | null
+          schools_result?: string | null
+          success: boolean
+          triggered_by?: string | null
+        }
+        Update: {
+          duration_ms?: number | null
+          error_message?: string | null
+          executed_at?: string
+          id?: string
+          lists_result?: string | null
+          schools_result?: string | null
+          success?: boolean
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       cep_coordinates: {
         Row: {
           address: string | null
@@ -1061,6 +1094,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_settings: {
+        Row: {
+          description: string | null
+          id: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          description?: string | null
+          id: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          description?: string | null
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
       }
       upload_events: {
         Row: {

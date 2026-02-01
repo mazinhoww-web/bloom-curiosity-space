@@ -3,7 +3,6 @@ import { Plus, Edit, Trash2 } from "lucide-react";
 import { SchoolAdminLayout } from "@/components/school-admin/SchoolAdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -30,12 +29,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { SchoolAdminListDialog } from "@/components/school-admin/SchoolAdminListDialog";
 import { OfficialListCard } from "@/components/school-admin/OfficialListCard";
+import { ListStatusBadge } from "@/components/lists/ListStatusBadge";
+
+type ListStatus = "draft" | "published" | "flagged" | "official";
 
 interface ListWithGrade {
   id: string;
   year: number;
   is_active: boolean;
-  is_official: boolean;
+  status: ListStatus;
   grade_id: string;
   grades: {
     id: string;
@@ -117,28 +119,45 @@ export default function SchoolAdminLists() {
     },
   });
 
-  const toggleOfficialMutation = useMutation({
-    mutationFn: async ({ listId, isOfficial }: { listId: string; isOfficial: boolean }) => {
+  const promoteToOfficialMutation = useMutation({
+    mutationFn: async ({ listId }: { listId: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("User not authenticated");
+      
+      // Use the database function to handle the promotion
+      const { error } = await supabase.rpc("promote_list_to_official", {
+        _list_id: listId,
+        _user_id: user.id,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["school-admin-lists"] });
+      toast({ title: "Lista promovida para oficial!" });
+    },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive", 
+        title: "Erro ao promover lista",
+        description: error?.message || "Tente novamente."
+      });
+    },
+  });
+
+  const demoteFromOfficialMutation = useMutation({
+    mutationFn: async ({ listId }: { listId: string }) => {
       const { error } = await supabase
         .from("material_lists")
-        .update({ is_official: isOfficial } as any)
+        .update({ status: "published", promoted_by: null, promoted_at: null } as any)
         .eq("id", listId);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["school-admin-lists"] });
-      toast({ title: "Lista marcada como oficial!" });
+      toast({ title: "Lista não é mais oficial." });
     },
-    onError: (error: any) => {
-      if (error?.message?.includes("idx_one_official_list_per_grade_school")) {
-        toast({ 
-          variant: "destructive", 
-          title: "Já existe uma lista oficial para esta série",
-          description: "Desmarque a lista oficial atual antes de marcar outra."
-        });
-      } else {
-        toast({ variant: "destructive", title: "Erro ao atualizar lista" });
-      }
+    onError: () => {
+      toast({ variant: "destructive", title: "Erro ao atualizar lista" });
     },
   });
 
@@ -171,7 +190,8 @@ export default function SchoolAdminLists() {
   };
 
   // Filter official lists for the cards
-  const officialLists = lists?.filter((l) => l.is_official && l.is_active) || [];
+  // Filter official lists for the cards
+  const officialLists = lists?.filter((l) => l.status === "official" && l.is_active) || [];
 
   return (
     <SchoolAdminLayout title="Listas de Materiais" description="Gerencie as listas da sua escola">
@@ -227,22 +247,24 @@ export default function SchoolAdminLists() {
                 {lists.map((list) => (
                   <TableRow key={list.id}>
                     <TableCell className="font-medium">
-                      {list.grades?.name}
-                      {list.is_official && (
-                        <Badge variant="default" className="ml-2 bg-success text-success-foreground">
-                          Oficial
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {list.grades?.name}
+                        <ListStatusBadge status={list.status} size="sm" />
+                      </div>
                     </TableCell>
                     <TableCell>{list.year}</TableCell>
                     <TableCell>{list.material_items?.length || 0}</TableCell>
                     <TableCell>
                       <Switch
-                        checked={list.is_official}
-                        onCheckedChange={(checked) =>
-                          toggleOfficialMutation.mutate({ listId: list.id, isOfficial: checked })
-                        }
-                        disabled={toggleOfficialMutation.isPending}
+                        checked={list.status === "official"}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            promoteToOfficialMutation.mutate({ listId: list.id });
+                          } else {
+                            demoteFromOfficialMutation.mutate({ listId: list.id });
+                          }
+                        }}
+                        disabled={promoteToOfficialMutation.isPending || demoteFromOfficialMutation.isPending}
                       />
                     </TableCell>
                     <TableCell>

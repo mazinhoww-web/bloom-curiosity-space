@@ -131,6 +131,47 @@ export type Database = {
         }
         Relationships: []
       }
+      list_status_history: {
+        Row: {
+          changed_by: string | null
+          created_at: string
+          id: string
+          list_id: string
+          metadata: Json | null
+          new_status: Database["public"]["Enums"]["list_status"]
+          previous_status: Database["public"]["Enums"]["list_status"] | null
+          reason: string | null
+        }
+        Insert: {
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          list_id: string
+          metadata?: Json | null
+          new_status: Database["public"]["Enums"]["list_status"]
+          previous_status?: Database["public"]["Enums"]["list_status"] | null
+          reason?: string | null
+        }
+        Update: {
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          list_id?: string
+          metadata?: Json | null
+          new_status?: Database["public"]["Enums"]["list_status"]
+          previous_status?: Database["public"]["Enums"]["list_status"] | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "list_status_history_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       list_view_events: {
         Row: {
           grade_id: string
@@ -285,7 +326,10 @@ export type Database = {
           grade_id: string
           id: string
           is_active: boolean | null
+          promoted_at: string | null
+          promoted_by: string | null
           school_id: string
+          status: Database["public"]["Enums"]["list_status"]
           updated_at: string
           version: number | null
           year: number
@@ -295,7 +339,10 @@ export type Database = {
           grade_id: string
           id?: string
           is_active?: boolean | null
+          promoted_at?: string | null
+          promoted_by?: string | null
           school_id: string
+          status?: Database["public"]["Enums"]["list_status"]
           updated_at?: string
           version?: number | null
           year?: number
@@ -305,7 +352,10 @@ export type Database = {
           grade_id?: string
           id?: string
           is_active?: boolean | null
+          promoted_at?: string | null
+          promoted_by?: string | null
           school_id?: string
+          status?: Database["public"]["Enums"]["list_status"]
           updated_at?: string
           version?: number | null
           year?: number
@@ -772,11 +822,16 @@ export type Database = {
         Args: { _school_id: string; _user_id: string }
         Returns: boolean
       }
+      promote_list_to_official: {
+        Args: { _list_id: string; _user_id: string }
+        Returns: boolean
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      list_status: "draft" | "published" | "flagged" | "official"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -905,6 +960,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      list_status: ["draft", "published", "flagged", "official"],
     },
   },
 } as const

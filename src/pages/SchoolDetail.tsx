@@ -158,14 +158,22 @@ export default function SchoolDetail() {
     }, {} as Record<string, { category: MaterialCategory | null; items: MaterialItemWithCategory[] }>);
   }, [selectedList]);
 
-  // Calculate total (excluding owned items)
-  const totalEstimate = useMemo(() => {
-    if (!selectedList?.material_items) return 0;
-    return selectedList.material_items
+  // Calculate totals (excluding owned items)
+  const { totalEstimate, essentialCount, optionalCount, hasAnyPrice } = useMemo(() => {
+    if (!selectedList?.material_items) return { totalEstimate: 0, essentialCount: 0, optionalCount: 0, hasAnyPrice: false };
+    
+    const items = selectedList.material_items;
+    const essentialCount = items.filter(i => i.is_required !== false).length;
+    const optionalCount = items.filter(i => i.is_required === false).length;
+    const hasAnyPrice = items.some(i => i.price_estimate && i.price_estimate > 0);
+    
+    const totalEstimate = items
       .filter((item) => !isOwned(item.id))
       .reduce((sum, item) => {
         return sum + (item.price_estimate || 0) * (item.quantity || 1);
       }, 0);
+      
+    return { totalEstimate, essentialCount, optionalCount, hasAnyPrice };
   }, [selectedList, isOwned]);
 
   // Track purchase click
@@ -343,48 +351,96 @@ export default function SchoolDetail() {
               </CardContent>
             </Card>
 
-            {/* Official badge + Add all button + Materials list */}
+            {/* Official badge + Cost summary + Add all button */}
             {selectedList && (
               <div className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  {(selectedList as any).is_official && (
-                    <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2">
-                      <Badge variant="default" className="bg-success text-success-foreground">
-                        ✓ Lista Oficial
-                      </Badge>
+                {/* Official List Banner */}
+                {(selectedList as any).is_official && (
+                  <div className="rounded-xl border-2 border-success bg-gradient-to-r from-success/10 to-success/5 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success text-success-foreground">
+                        <Check className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-display font-semibold text-success">Lista Oficial da Escola</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Esta é a lista oficial de materiais para {selectedList.grades?.name}
+                        </p>
+                      </div>
                     </div>
-                  )}
-                  <Button
-                    variant="outline"
-                    className="ml-auto gap-2"
-                    onClick={() => {
-                      if (!selectedList?.material_items || !school) return;
-                      selectedList.material_items.forEach((item) => {
-                        if (!isInCart(item.id)) {
-                          addItem({
-                            id: item.id,
-                            name: item.name,
-                            quantity: item.quantity || 1,
-                            unit: item.unit,
-                            price_estimate: item.price_estimate,
-                            purchase_url: item.purchase_url,
-                            brand_suggestion: item.brand_suggestion,
-                            schoolId: school.id,
-                            schoolName: school.name,
-                            gradeName: selectedList.grades?.name || "",
+                  </div>
+                )}
+
+                {/* Cost Summary Card */}
+                <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm text-muted-foreground">
+                          {hasAnyPrice ? "Valor estimado da lista" : "Total de itens"}
+                        </p>
+                        {hasAnyPrice ? (
+                          <p className="font-display text-2xl font-bold text-primary">
+                            R$ {totalEstimate.toFixed(2)}
+                            {ownedCount > 0 && (
+                              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                                (já tenho {ownedCount})
+                              </span>
+                            )}
+                          </p>
+                        ) : (
+                          <p className="font-display text-2xl font-bold text-foreground">
+                            {selectedList.material_items?.length || 0} itens
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {essentialCount > 0 && (
+                            <Badge className="bg-primary/10 text-primary border-primary/20">
+                              {essentialCount} essenciais
+                            </Badge>
+                          )}
+                          {optionalCount > 0 && (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              {optionalCount} opcionais
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        size="lg"
+                        className="gap-2"
+                        onClick={() => {
+                          if (!selectedList?.material_items || !school) return;
+                          let addedCount = 0;
+                          selectedList.material_items.forEach((item) => {
+                            if (!isInCart(item.id) && !isOwned(item.id)) {
+                              addItem({
+                                id: item.id,
+                                name: item.name,
+                                quantity: item.quantity || 1,
+                                unit: item.unit,
+                                price_estimate: item.price_estimate,
+                                purchase_url: item.purchase_url,
+                                brand_suggestion: item.brand_suggestion,
+                                schoolId: school.id,
+                                schoolName: school.name,
+                                gradeName: selectedList.grades?.name || "",
+                              });
+                              addedCount++;
+                            }
                           });
-                        }
-                      });
-                      toast({
-                        title: "Itens adicionados ao carrinho",
-                        description: `${selectedList.material_items.length} itens foram adicionados.`,
-                      });
-                    }}
-                  >
-                    <ShoppingCart className="h-4 w-4" />
-                    Adicionar Todos
-                  </Button>
-                </div>
+                          toast({
+                            title: "Itens adicionados ao carrinho",
+                            description: `${addedCount} itens foram adicionados.`,
+                          });
+                        }}
+                      >
+                        <ShoppingCart className="h-5 w-5" />
+                        Adicionar Todos ao Carrinho
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
                 {Object.entries(itemsByCategory).map(([categoryName, { category, items }]) => (
                   <Card key={categoryName} className="overflow-hidden">
                     <CardHeader className="bg-muted/50">
@@ -424,8 +480,12 @@ export default function SchoolDetail() {
                                 <span className={`font-medium ${itemOwned ? "line-through text-muted-foreground" : "text-foreground"}`}>
                                   {item.quantity}x {item.name}
                                 </span>
-                                {!item.is_required && (
-                                  <Badge variant="outline" className="text-xs">
+                                {item.is_required !== false ? (
+                                  <Badge className="text-xs bg-primary/10 text-primary border-primary/20">
+                                    Essencial
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs text-muted-foreground">
                                     Opcional
                                   </Badge>
                                 )}
@@ -527,41 +587,62 @@ export default function SchoolDetail() {
           <div className="space-y-6">
             {/* Summary card */}
             {selectedList && (
-              <Card className="sticky top-24">
-                <CardHeader>
-                  <CardTitle className="font-display text-lg">Resumo</CardTitle>
+              <Card className="sticky top-24 border-2">
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-lg">Resumo da Lista</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Série:</span>
                     <span className="font-medium">{selectedList.grades?.name}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total de itens:</span>
-                    <span className="font-medium">{selectedList.material_items?.length || 0}</span>
-                  </div>
-                  {ownedCount > 0 && (
+                  
+                  {/* Items breakdown */}
+                  <div className="rounded-lg bg-muted/50 p-3 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Já tenho:</span>
-                      <span className="font-medium text-success">{ownedCount} itens</span>
+                      <span className="text-muted-foreground">Itens essenciais:</span>
+                      <span className="font-medium text-primary">{essentialCount}</span>
                     </div>
-                  )}
-                  {ownedCount > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Falta comprar:</span>
-                      <span className="font-medium">{(selectedList.material_items?.length || 0) - ownedCount} itens</span>
-                    </div>
-                  )}
-                  {totalEstimate > 0 && (
-                    <div className="border-t pt-4">
-                      <div className="flex justify-between">
-                        <span className="font-medium">{ownedCount > 0 ? "Falta gastar:" : "Total estimado:"}</span>
-                        <span className="text-lg font-bold text-primary">
-                          R$ {totalEstimate.toFixed(2)}
-                        </span>
+                    {optionalCount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Itens opcionais:</span>
+                        <span className="font-medium">{optionalCount}</span>
                       </div>
-                    </div>
-                  )}
+                    )}
+                    {ownedCount > 0 && (
+                      <div className="flex justify-between text-sm border-t border-border/50 pt-2 mt-2">
+                        <span className="text-muted-foreground">Já tenho:</span>
+                        <span className="font-medium text-success">✓ {ownedCount}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cost summary */}
+                  <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
+                    {hasAnyPrice ? (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          {ownedCount > 0 ? "Valor estimado restante" : "Valor estimado total"}
+                        </p>
+                        <p className="font-display text-2xl font-bold text-primary">
+                          R$ {totalEstimate.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          *Preços podem variar conforme a loja
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-1">Total de itens</p>
+                        <p className="font-display text-2xl font-bold text-foreground">
+                          {(selectedList.material_items?.length || 0) - ownedCount} itens
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          para comprar
+                        </p>
+                      </>
+                    )}
+                  </div>
 
                   <div className="border-t pt-4">
                     <p className="mb-3 text-sm font-medium">Compartilhar lista:</p>

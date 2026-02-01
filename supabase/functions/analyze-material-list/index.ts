@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -99,6 +100,37 @@ IMPORTANTE:
 - O JSON deve ser parseável diretamente
 - Liste TODOS os itens encontrados, mesmo que sejam muitos`;
 
+// Helper function to log AI provider metrics
+async function logMetric(
+  supabaseUrl: string,
+  supabaseKey: string,
+  functionName: string,
+  provider: string,
+  success: boolean,
+  responseTimeMs: number,
+  fallbackUsed: boolean,
+  errorMessage?: string
+) {
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { error } = await supabase.from('ai_provider_metrics').insert({
+      function_name: functionName,
+      provider,
+      success,
+      response_time_ms: responseTimeMs,
+      fallback_used: fallbackUsed,
+      error_message: errorMessage || null,
+    });
+    if (error) {
+      console.error('[Metrics] Insert error:', error);
+    } else {
+      console.log(`[Metrics] Logged: ${provider} - ${success ? 'success' : 'failed'} - ${responseTimeMs}ms`);
+    }
+  } catch (err) {
+    console.error('[Metrics] Failed to log metric:', err);
+  }
+}
+
 // Helper function to call AI provider
 async function callAI(
   apiUrl: string, 
@@ -106,8 +138,10 @@ async function callAI(
   model: string, 
   imageContent: { type: string; image_url: { url: string } },
   providerName: string
-): Promise<{ success: boolean; content?: string; error?: string; status?: number }> {
-  console.log(`Calling ${providerName} with model ${model}...`);
+): Promise<{ success: boolean; content?: string; error?: string; status?: number; responseTimeMs: number }> {
+  console.log(`[AI] Calling ${providerName} with model ${model}...`);
+  
+  const startTime = Date.now();
   
   try {
     const response = await fetch(apiUrl, {
@@ -136,28 +170,31 @@ async function callAI(
           }
         ],
         temperature: 0.1,
-        max_tokens: 16384,
+        max_tokens: 8192, // Reduced to work within OpenRouter free tier limits
       }),
     });
 
+    const responseTimeMs = Date.now() - startTime;
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`${providerName} API error:`, response.status, errorText);
-      return { success: false, error: errorText, status: response.status };
+      console.error(`[AI] ${providerName} API error:`, response.status, errorText);
+      return { success: false, error: errorText, status: response.status, responseTimeMs };
     }
 
     const result = await response.json();
     const content = result.choices?.[0]?.message?.content;
     
     if (!content) {
-      return { success: false, error: "Empty response from AI" };
+      return { success: false, error: "Empty response from AI", responseTimeMs };
     }
 
-    console.log(`${providerName} response received successfully`);
-    return { success: true, content };
+    console.log(`[AI] ${providerName} response received successfully in ${responseTimeMs}ms`);
+    return { success: true, content, responseTimeMs };
   } catch (error) {
-    console.error(`${providerName} call failed:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    const responseTimeMs = Date.now() - startTime;
+    console.error(`[AI] ${providerName} call failed:`, error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error", responseTimeMs };
   }
 }
 
@@ -165,6 +202,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   try {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
@@ -187,8 +227,8 @@ serve(async (req) => {
       );
     }
 
-    console.log("Analyzing material list...");
-    console.log(`File type: ${file_type}, Base64 length: ${image_base64?.length || 0}`);
+    console.log("[analyze-material-list] Starting analysis...");
+    console.log(`[analyze-material-list] File type: ${file_type}, Base64 length: ${image_base64?.length || 0}`);
 
     // Prepare image content for the API
     let imageContent: { type: string; image_url: { url: string } };
@@ -212,9 +252,11 @@ serve(async (req) => {
 
     let aiContent: string | null = null;
     let usedProvider = "none";
+    let fallbackUsed = false;
 
     // Try OpenRouter first (primary)
     if (OPENROUTER_API_KEY) {
+      console.log("[analyze-material-list] Trying OpenRouter (primary)...");
       const openRouterResult = await callAI(
         "https://openrouter.ai/api/v1/chat/completions",
         OPENROUTER_API_KEY,
@@ -223,25 +265,38 @@ serve(async (req) => {
         "OpenRouter"
       );
 
+      // Log OpenRouter attempt
+      await logMetric(
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
+        "analyze-material-list",
+        "OpenRouter",
+        openRouterResult.success,
+        openRouterResult.responseTimeMs,
+        false,
+        openRouterResult.error
+      );
+
       if (openRouterResult.success && openRouterResult.content) {
         aiContent = openRouterResult.content;
         usedProvider = "OpenRouter";
+        console.log(`[analyze-material-list] ✅ OpenRouter succeeded in ${openRouterResult.responseTimeMs}ms`);
       } else {
-        console.log("OpenRouter failed, falling back to Lovable AI...");
+        console.log(`[analyze-material-list] ❌ OpenRouter failed: ${openRouterResult.error}`);
         
-        // Check for rate limiting or payment issues - still return error
+        // Check for rate limiting or payment issues
         if (openRouterResult.status === 429) {
-          // Try fallback instead of returning error
-          console.log("OpenRouter rate limited, trying fallback...");
+          console.log("[analyze-material-list] OpenRouter rate limited, trying fallback...");
         } else if (openRouterResult.status === 402) {
-          console.log("OpenRouter payment required, trying fallback...");
+          console.log("[analyze-material-list] OpenRouter payment required, trying fallback...");
         }
       }
     }
 
     // Fallback to Lovable AI
     if (!aiContent && LOVABLE_API_KEY) {
-      console.log("Using Lovable AI as fallback...");
+      console.log("[analyze-material-list] Trying Lovable AI (fallback)...");
+      fallbackUsed = true;
       
       const lovableResult = await callAI(
         "https://ai.gateway.lovable.dev/v1/chat/completions",
@@ -251,10 +306,25 @@ serve(async (req) => {
         "Lovable AI"
       );
 
+      // Log Lovable AI attempt
+      await logMetric(
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
+        "analyze-material-list",
+        "Lovable AI",
+        lovableResult.success,
+        lovableResult.responseTimeMs,
+        true,
+        lovableResult.error
+      );
+
       if (lovableResult.success && lovableResult.content) {
         aiContent = lovableResult.content;
         usedProvider = "Lovable AI";
+        console.log(`[analyze-material-list] ✅ Lovable AI succeeded in ${lovableResult.responseTimeMs}ms`);
       } else {
+        console.log(`[analyze-material-list] ❌ Lovable AI failed: ${lovableResult.error}`);
+        
         // Return appropriate error based on status
         if (lovableResult.status === 429) {
           return new Response(
@@ -278,7 +348,7 @@ serve(async (req) => {
       throw new Error("No AI provider available to process the request");
     }
 
-    console.log(`Successfully processed with ${usedProvider}`);
+    console.log(`[analyze-material-list] ✅ Successfully processed with ${usedProvider} (fallback: ${fallbackUsed})`);
     const content = aiContent;
     
     if (!content) {

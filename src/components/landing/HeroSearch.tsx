@@ -1,4 +1,4 @@
-import { Search, Upload, ChevronRight } from "lucide-react";
+import { Search, Upload, ChevronRight, Heart } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -41,20 +41,25 @@ export function HeroSearch() {
 
       <div className="container relative z-10">
         <div className="mx-auto max-w-3xl text-center">
-          {/* Headline */}
+          {/* Empathy Badge */}
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm">
+            <Heart className="h-4 w-4" />
+            Feito para facilitar a sua vida
+          </div>
+
+          {/* Headline - Empática */}
           <h1 className="mb-6 font-display text-4xl font-bold tracking-tight text-white md:text-5xl lg:text-6xl">
-            A lista de materiais da{" "}
+            Chega de correr atrás da{" "}
             <span className="relative inline-block">
-              <span className="relative z-10">escola do seu filho</span>
+              <span className="relative z-10">lista de materiais</span>
               <span className="absolute bottom-1 left-0 right-0 h-3 bg-accent/40 -z-0" />
             </span>
-            {" "}em um só lugar
           </h1>
 
-          {/* Subheadline */}
+          {/* Subheadline - Prática */}
           <p className="mb-10 text-lg text-white/90 md:text-xl leading-relaxed">
-            Busque pelo CEP, encontre a escola, veja a lista completa de materiais 
-            e compre com links diretos para as melhores lojas.
+            Encontre a lista da escola do seu filho em segundos. 
+            Organizada, pronta para compartilhar e com links diretos para compra.
           </p>
 
           {/* Search Form */}
@@ -76,7 +81,7 @@ export function HeroSearch() {
                 size="lg"
                 className="h-14 rounded-xl bg-accent px-8 text-lg font-bold shadow-xl transition-all hover:scale-105 hover:bg-accent/90 hover:shadow-2xl"
               >
-                Buscar escolas
+                Buscar escola
                 <ChevronRight className="ml-1 h-5 w-5" />
               </Button>
             </div>
@@ -92,28 +97,15 @@ export function HeroSearch() {
                 className="gap-2 border-white/30 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
               >
                 <Upload className="h-4 w-4" />
-                Contribuir com uma lista
+                Ajude outros pais
               </Button>
             </Link>
           </div>
 
-          {/* Trust Indicators */}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-sm text-white/80">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🏫</span>
-              <span>+500 escolas</span>
-            </div>
-            <div className="h-4 w-px bg-white/30 hidden sm:block" />
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🛒</span>
-              <span>Links diretos de compra</span>
-            </div>
-            <div className="h-4 w-px bg-white/30 hidden sm:block" />
-            <div className="flex items-center gap-2">
-              <span className="text-xl">💬</span>
-              <span>Compartilhe pelo WhatsApp</span>
-            </div>
-          </div>
+          {/* Reassurance */}
+          <p className="mt-10 text-sm text-white/70">
+            ✓ Sem cadastro &nbsp;&nbsp; ✓ 100% gratuito &nbsp;&nbsp; ✓ Acesso imediato
+          </p>
         </div>
       </div>
     </section>

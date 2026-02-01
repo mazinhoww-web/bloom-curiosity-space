@@ -6,7 +6,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
-  Settings, 
   RefreshCcw, 
   Clock, 
   CheckCircle2, 
@@ -14,7 +13,8 @@ import {
   Loader2, 
   Play,
   Calendar,
-  Database
+  Database,
+  Zap
 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
@@ -78,7 +79,6 @@ export default function AdminSettings() {
 
       if (error) {
         if (error.code === "PGRST116") {
-          // No settings found, return defaults
           return {
             id: "cache_refresh_schedule",
             value: {
@@ -153,7 +153,6 @@ export default function AdminSettings() {
 
       if (error) throw error;
 
-      // Log the manual execution
       await supabase.from("cache_refresh_logs").insert({
         duration_ms: data.duration_ms,
         success: data.success,
@@ -164,8 +163,6 @@ export default function AdminSettings() {
 
       toast.success(`Cache atualizado em ${data.duration_ms}ms`);
       queryClient.invalidateQueries({ queryKey: ["admin-cache-logs"] });
-
-      // Update last_run in settings
       updateSettings.mutate({ last_run: new Date().toISOString() });
     } catch (error) {
       console.error("Error refreshing cache:", error);
@@ -182,183 +179,201 @@ export default function AdminSettings() {
       title="Configurações" 
       description="Configurações do sistema e automações"
     >
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Cache Refresh Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              Cache de Escolas Populares
-            </CardTitle>
-            <CardDescription>
-              Configure a frequência de atualização do cache de escolas e listas populares exibidas na home.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {loadingSettings ? (
-              <div className="space-y-4">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : (
-              <>
-                {/* Enable/Disable */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="cache-enabled">Atualização automática</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Ativa o job de atualização do cache
-                    </p>
+      <Tabs defaultValue="cache" className="w-full">
+        <TabsList className="mb-6 w-full sm:w-auto grid grid-cols-2 sm:flex">
+          <TabsTrigger value="cache" className="gap-2">
+            <Database className="h-4 w-4" />
+            <span className="hidden sm:inline">Cache</span>
+          </TabsTrigger>
+          <TabsTrigger value="ai" className="gap-2">
+            <Zap className="h-4 w-4" />
+            <span className="hidden sm:inline">AI Providers</span>
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Cache Tab */}
+        <TabsContent value="cache" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Cache Refresh Settings */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Database className="h-5 w-5 text-primary" />
+                  Cache de Escolas Populares
+                </CardTitle>
+                <CardDescription className="text-sm">
+                  Configure a frequência de atualização do cache de escolas e listas populares.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {loadingSettings ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
                   </div>
-                  <Switch
-                    id="cache-enabled"
-                    checked={currentSettings?.enabled ?? true}
-                    onCheckedChange={(enabled) => updateSettings.mutate({ enabled })}
-                    disabled={updateSettings.isPending}
-                  />
-                </div>
-
-                {/* Interval */}
-                <div className="space-y-2">
-                  <Label>Frequência de atualização</Label>
-                  <Select
-                    value={String(currentSettings?.interval_hours ?? 24)}
-                    onValueChange={(value) => updateSettings.mutate({ interval_hours: parseInt(value) })}
-                    disabled={updateSettings.isPending || !currentSettings?.enabled}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INTERVAL_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Last/Next run info */}
-                <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Última execução:</span>
-                    <span className="font-medium">
-                      {currentSettings?.last_run 
-                        ? formatDistanceToNow(new Date(currentSettings.last_run), { addSuffix: true, locale: ptBR })
-                        : "Nunca executado"
-                      }
-                    </span>
-                  </div>
-                </div>
-
-                {/* Manual trigger */}
-                <Button 
-                  onClick={triggerRefresh}
-                  disabled={isRefreshing}
-                  className="w-full gap-2"
-                >
-                  {isRefreshing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Atualizando...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4" />
-                      Executar agora
-                    </>
-                  )}
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Execution Logs */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-secondary" />
-              Histórico de Execuções
-            </CardTitle>
-            <CardDescription>
-              Últimas 10 execuções do job de atualização de cache
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingLogs ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
-                ))}
-              </div>
-            ) : logs && logs.length > 0 ? (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {logs.map((log) => (
-                  <div 
-                    key={log.id} 
-                    className="flex items-center justify-between rounded-lg border bg-card p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      {log.success ? (
-                        <CheckCircle2 className="h-5 w-5 text-success" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-destructive" />
-                      )}
-                      <div>
-                        <p className="text-sm font-medium">
-                          {format(new Date(log.executed_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {log.triggered_by === "manual" ? "Manual" : "Automático"}
-                          {log.duration_ms && ` • ${log.duration_ms}ms`}
+                ) : (
+                  <>
+                    {/* Enable/Disable */}
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="cache-enabled" className="font-medium">
+                          Atualização automática
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Ativa o job de atualização do cache
                         </p>
                       </div>
+                      <Switch
+                        id="cache-enabled"
+                        checked={currentSettings?.enabled ?? true}
+                        onCheckedChange={(enabled) => updateSettings.mutate({ enabled })}
+                        disabled={updateSettings.isPending}
+                      />
                     </div>
-                    <div className="flex items-center gap-2">
-                      {log.schools_result === "Success" && (
-                        <Badge variant="secondary" className="text-xs">Escolas ✓</Badge>
-                      )}
-                      {log.lists_result === "Success" && (
-                        <Badge variant="secondary" className="text-xs">Listas ✓</Badge>
-                      )}
-                      {log.error_message && (
-                        <Badge variant="destructive" className="text-xs">Erro</Badge>
-                      )}
+
+                    {/* Interval */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Frequência de atualização</Label>
+                      <Select
+                        value={String(currentSettings?.interval_hours ?? 24)}
+                        onValueChange={(value) => updateSettings.mutate({ interval_hours: parseInt(value) })}
+                        disabled={updateSettings.isPending || !currentSettings?.enabled}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTERVAL_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
+
+                    {/* Last run info */}
+                    <div className="rounded-lg bg-muted/50 p-4">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Última execução:</span>
+                        <span className="font-medium">
+                          {currentSettings?.last_run 
+                            ? formatDistanceToNow(new Date(currentSettings.last_run), { addSuffix: true, locale: ptBR })
+                            : "Nunca executado"
+                          }
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Manual trigger */}
+                    <Button 
+                      onClick={triggerRefresh}
+                      disabled={isRefreshing}
+                      className="w-full gap-2"
+                      size="lg"
+                    >
+                      {isRefreshing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Atualizando...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-4 w-4" />
+                          Executar agora
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Execution Logs */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Clock className="h-5 w-5 text-muted-foreground" />
+                  Histórico de Execuções
+                </CardTitle>
+                <CardDescription className="text-sm">
+                  Últimas 10 execuções do job de atualização
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingLogs ? (
+                  <div className="space-y-2">
+                    {[...Array(5)].map((_, i) => (
+                      <Skeleton key={i} className="h-14 w-full" />
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-8 text-center text-muted-foreground">
-                <Clock className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                <p>Nenhuma execução registrada</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                ) : logs && logs.length > 0 ? (
+                  <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                    {logs.map((log) => (
+                      <div 
+                        key={log.id} 
+                        className="flex items-center justify-between rounded-lg border bg-card p-3 gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {log.success ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-destructive shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {format(new Date(log.executed_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {log.triggered_by === "manual" ? "Manual" : "Automático"}
+                              {log.duration_ms && ` • ${log.duration_ms}ms`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {log.schools_result === "Success" && (
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
+                              Escolas
+                            </Badge>
+                          )}
+                          {log.lists_result === "Success" && (
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
+                              Listas
+                            </Badge>
+                          )}
+                          {log.error_message && (
+                            <Badge variant="destructive" className="text-xs px-1.5 py-0.5">
+                              Erro
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground">
+                    <Clock className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                    <p className="text-sm">Nenhuma execução registrada</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* AI Provider Metrics */}
-      <div className="mt-6">
-        <AIProviderMetrics />
-      </div>
-
-      {/* Cron Setup Instructions */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-accent-foreground" />
-            Configuração do Cron Job
-          </CardTitle>
-          <CardDescription>
-            O job automático precisa ser configurado no banco de dados. Use o SQL abaixo no Cloud View.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-lg bg-muted p-4 font-mono text-sm overflow-x-auto">
-            <pre className="whitespace-pre-wrap text-xs">
+          {/* Cron Setup Instructions */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Calendar className="h-5 w-5 text-muted-foreground" />
+                Configuração do Cron Job
+              </CardTitle>
+              <CardDescription className="text-sm">
+                O job automático precisa ser configurado no banco de dados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg bg-muted p-4 overflow-x-auto">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-all">
 {`-- Execute no Cloud View > Run SQL para configurar o cron job diário
 SELECT cron.schedule(
   'refresh-popular-cache-daily',
@@ -366,18 +381,22 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://qhzncyuxyihybjsytfmc.supabase.co/functions/v1/refresh-popular-cache',
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}"}'::jsonb,
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_KEY"}'::jsonb,
     body := '{"schools": true, "lists": true}'::jsonb
   ) AS request_id;
   $$
-);
+);`}
+                </pre>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
--- Para remover o job:
--- SELECT cron.unschedule('refresh-popular-cache-daily');`}
-            </pre>
-          </div>
-        </CardContent>
-      </Card>
+        {/* AI Providers Tab */}
+        <TabsContent value="ai">
+          <AIProviderMetrics />
+        </TabsContent>
+      </Tabs>
     </AdminLayout>
   );
 }

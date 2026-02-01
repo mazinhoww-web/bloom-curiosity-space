@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { Camera, Upload, FileImage, Loader2, Sparkles, X, FileText, Check } from "lucide-react";
 import {
   Dialog,
@@ -14,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface ExtractedItem {
@@ -33,6 +31,15 @@ interface AnalysisResult {
   grade: string | null;
   year: number | null;
   raw_text: string | null;
+}
+
+interface SSEMessage {
+  type: "progress" | "complete" | "error";
+  stage?: string;
+  progress?: number;
+  message?: string;
+  data?: AnalysisResult;
+  error?: string;
 }
 
 interface ListAIImportDialogProps {
@@ -61,28 +68,82 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [stage, setStage] = useState<"upload" | "uploading" | "analyzing" | "review">("upload");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisMessage, setAnalysisMessage] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const analyzeMutation = useMutation({
-    mutationFn: async (base64: string) => {
-      const { data, error } = await supabase.functions.invoke("analyze-material-list", {
-        body: { image_base64: base64, file_type: fileType },
+  const analyzeWithSSE = useCallback(async (base64: string) => {
+    setIsAnalyzing(true);
+    setAnalysisProgress(0);
+    setAnalysisMessage("Iniciando análise...");
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/analyze-material-list`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: JSON.stringify({
+          image_base64: base64,
+          file_type: fileType,
+          use_sse: true,
+        }),
       });
 
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
-      return data as AnalysisResult;
-    },
-    onSuccess: (result) => {
-      setAnalysisResult(result);
-      // Selecionar todos os itens por padrão
-      setSelectedItems(new Set(result.items.map((_, i) => i)));
-      setStage("review");
-    },
-    onError: (error) => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No reader available");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Parse SSE messages
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6)) as SSEMessage;
+              
+              if (data.type === "progress") {
+                setAnalysisProgress(data.progress || 0);
+                setAnalysisMessage(data.message || "Processando...");
+              } else if (data.type === "complete" && data.data) {
+                setAnalysisResult(data.data);
+                setSelectedItems(new Set(data.data.items.map((_, i) => i)));
+                setStage("review");
+              } else if (data.type === "error") {
+                throw new Error(data.error || "Erro desconhecido");
+              }
+            } catch (parseError) {
+              // Ignore parse errors for incomplete messages
+              console.log("Parse error (may be incomplete):", parseError);
+            }
+          }
+        }
+      }
+    } catch (error) {
       console.error("Analysis error:", error);
       toast({
         variant: "destructive",
@@ -90,8 +151,10 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
         description: error instanceof Error ? error.message : "Erro desconhecido",
       });
       setStage("upload");
-    },
-  });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [fileType, toast]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -171,7 +234,7 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
   const handleAnalyze = () => {
     if (!imageBase64) return;
     setStage("analyzing");
-    analyzeMutation.mutate(imageBase64);
+    analyzeWithSSE(imageBase64);
   };
 
   const handleToggleItem = (index: number) => {
@@ -212,6 +275,8 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
     setSelectedItems(new Set());
     setStage("upload");
     setUploadProgress(0);
+    setAnalysisProgress(0);
+    setAnalysisMessage("");
     onClose();
   };
 
@@ -353,13 +418,21 @@ export function ListAIImportDialog({ open, onClose, onImport }: ListAIImportDial
 
           {stage === "analyzing" && (
             <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <p className="mt-4 text-sm text-muted-foreground">
-                Analisando a lista de materiais...
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Isso pode levar alguns segundos
-              </p>
+              <div className="w-full max-w-xs space-y-4">
+                <div className="flex items-center justify-center">
+                  <Sparkles className="h-12 w-12 text-primary animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <Progress value={analysisProgress} className="h-2" />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{analysisMessage || "Analisando..."}</span>
+                    <span>{analysisProgress}%</span>
+                  </div>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  A IA está extraindo os itens da lista de materiais
+                </p>
+              </div>
             </div>
           )}
 

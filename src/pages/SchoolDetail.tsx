@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { 
   School as SchoolIcon, 
@@ -34,6 +34,7 @@ import {
   MaterialItem, 
   MaterialCategory 
 } from "@/types/database";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
@@ -49,6 +50,7 @@ export default function SchoolDetail() {
   const { toast } = useToast();
   const [selectedGradeId, setSelectedGradeId] = useState<string>("");
   const [copiedLink, setCopiedLink] = useState(false);
+  const { trackSchoolView, trackListView } = useAnalytics();
 
   // Fetch school
   const { data: school, isLoading: isLoadingSchool } = useQuery({
@@ -117,6 +119,20 @@ export default function SchoolDetail() {
     if (!lists || !selectedGradeId) return null;
     return lists.find((list) => list.grade_id === selectedGradeId);
   }, [lists, selectedGradeId]);
+
+  // Track school view when school loads
+  useEffect(() => {
+    if (school?.id) {
+      trackSchoolView(school.id);
+    }
+  }, [school?.id, trackSchoolView]);
+
+  // Track list view when a grade is selected
+  useEffect(() => {
+    if (selectedList && school?.id) {
+      trackListView(selectedList.id, school.id, selectedList.grade_id);
+    }
+  }, [selectedList?.id, school?.id, trackListView]);
 
   // Group items by category
   const itemsByCategory = useMemo(() => {

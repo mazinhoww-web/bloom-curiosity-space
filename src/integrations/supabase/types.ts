@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      cep_search_events: {
+        Row: {
+          cep: string
+          id: string
+          referrer: string | null
+          results_count: number
+          searched_at: string
+          session_id: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          cep: string
+          id?: string
+          referrer?: string | null
+          results_count?: number
+          searched_at?: string
+          session_id?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          cep?: string
+          id?: string
+          referrer?: string | null
+          results_count?: number
+          searched_at?: string
+          session_id?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       grades: {
         Row: {
           created_at: string
@@ -34,6 +64,61 @@ export type Database = {
           order_index?: number
         }
         Relationships: []
+      }
+      list_view_events: {
+        Row: {
+          grade_id: string
+          id: string
+          list_id: string
+          referrer: string | null
+          school_id: string
+          session_id: string | null
+          user_agent: string | null
+          viewed_at: string
+        }
+        Insert: {
+          grade_id: string
+          id?: string
+          list_id: string
+          referrer?: string | null
+          school_id: string
+          session_id?: string | null
+          user_agent?: string | null
+          viewed_at?: string
+        }
+        Update: {
+          grade_id?: string
+          id?: string
+          list_id?: string
+          referrer?: string | null
+          school_id?: string
+          session_id?: string | null
+          user_agent?: string | null
+          viewed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "list_view_events_grade_id_fkey"
+            columns: ["grade_id"]
+            isOneToOne: false
+            referencedRelation: "grades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "list_view_events_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "list_view_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       material_categories: {
         Row: {
@@ -218,6 +303,41 @@ export type Database = {
           },
           {
             foreignKeyName: "purchase_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_view_events: {
+        Row: {
+          id: string
+          referrer: string | null
+          school_id: string
+          session_id: string | null
+          user_agent: string | null
+          viewed_at: string
+        }
+        Insert: {
+          id?: string
+          referrer?: string | null
+          school_id: string
+          session_id?: string | null
+          user_agent?: string | null
+          viewed_at?: string
+        }
+        Update: {
+          id?: string
+          referrer?: string | null
+          school_id?: string
+          session_id?: string | null
+          user_agent?: string | null
+          viewed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_view_events_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"

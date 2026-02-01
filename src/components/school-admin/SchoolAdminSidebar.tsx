@@ -4,7 +4,6 @@ import {
   FileText,
   Eye,
   LogOut,
-  GraduationCap,
   School,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { SchoolSwitcher } from "./SchoolSwitcher";
 
 const menuItems = [
   {
@@ -76,19 +76,21 @@ export function SchoolAdminSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r">
       <SidebarHeader className="border-b p-4">
-        <Link to="/escola-admin" className="flex items-center gap-3">
+        <Link to="/escola-admin" className="mb-3 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary shadow-fun">
             <School className="h-5 w-5 text-secondary-foreground" />
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <span className="block truncate font-display text-sm font-bold text-foreground">
-                {school?.name || "Minha Escola"}
+                Painel Escola
               </span>
-              <p className="text-xs text-muted-foreground">Painel da Escola</p>
+              <p className="text-xs text-muted-foreground">Administração</p>
             </div>
           )}
         </Link>
+        {/* School Switcher - only show if not collapsed */}
+        {!collapsed && <SchoolSwitcher />}
       </SidebarHeader>
 
       <SidebarContent>

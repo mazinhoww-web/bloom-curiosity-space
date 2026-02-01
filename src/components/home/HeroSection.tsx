@@ -1,6 +1,6 @@
-import { Search } from "lucide-react";
+import { Search, Upload } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -74,6 +74,17 @@ export function HeroSection() {
               Buscar
             </Button>
           </form>
+
+          {/* CTA for contributing */}
+          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <span className="text-white/70 text-sm">Tem a lista da escola?</span>
+            <Link to="/contribuir">
+              <Button variant="secondary" size="sm" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Contribuir lista
+              </Button>
+            </Link>
+          </div>
 
           {/* Trust text */}
           <p className="mt-6 text-sm text-white/70">

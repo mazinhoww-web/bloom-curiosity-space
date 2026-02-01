@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import Schools from "./pages/Schools";
 import SchoolDetail from "./pages/SchoolDetail";
 import Auth from "./pages/Auth";
+import UploadList from "./pages/UploadList";
 import Dashboard from "./pages/admin/Dashboard";
 import AdminSchools from "./pages/admin/Schools";
 import AdminLists from "./pages/admin/Lists";
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/escolas" element={<Schools />} />
             <Route path="/escola/:slug" element={<SchoolDetail />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/contribuir" element={<UploadList />} />
             {/* Admin routes */}
             <Route path="/admin" element={<Dashboard />} />
             <Route path="/admin/escolas" element={<AdminSchools />} />

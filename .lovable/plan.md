@@ -1,140 +1,91 @@
 
-# Plano: Otimização do Processamento CSV e Correção do Admin
+
+# Plano de Implementação: Correção do Admin e Otimização do Processamento CSV
 
 ## Visão Geral
 
-Este plano resolve dois problemas críticos:
-1. **Processamento CSV lento** - IA sendo chamada durante o upload, tornando o processo extremamente lento
-2. **Painel admin não abre** - Race condition que impede administradores de acessarem o painel
+Este plano implementa as duas correções críticas identificadas:
+1. **Bug de acesso ao Admin** - Race condition que impede administradores de acessarem o painel
+2. **Otimização do processamento CSV** - Processamento com IA após upload completo (não durante)
 
 ---
 
-## Problema 1: Processamento CSV Lento
+## Parte 1: Correção do Bug de Acesso ao Admin
 
-### Diagnóstico
+### Problema Identificado
 
-O fluxo atual:
-```text
-Frontend → Envia 500 escolas → Edge Function → 10 chamadas IA (50 cada) → Retorna
-Frontend → Envia próximas 500 → Edge Function → 10 chamadas IA → Retorna
-... repete para cada chunk
-```
-
-Para 180.000 escolas = 360 chunks = 3.600 chamadas de IA em série!
-
-### Solução: Processamento em Duas Etapas
-
-Novo fluxo:
-```text
-1. Upload Rápido: Frontend lê arquivo → Parse local → Mostra preview básico
-2. Processamento: Envia TUDO para edge function → Processa em background
-3. Inserção: Edge function insere no banco em batches
-```
-
-### Arquivos a Modificar
-
-**1. `src/components/admin/SchoolImportDialog.tsx`**
-
-Mudanças:
-- Separar etapa de upload (rápido, local) da etapa de processamento (backend)
-- Adicionar novo estágio "uploading" antes do "processing"
-- Mostrar preview SEM chamar IA (preview do CSV bruto)
-- Botão "Processar com IA" envia todas as escolas de uma vez
-- Adicionar indicador de progresso mais detalhado com estimativa de tempo
-
-Novo fluxo de estados:
-```text
-upload → preview (dados brutos) → processing (IA no backend) → done
-```
-
-**2. `supabase/functions/process-schools-csv/index.ts`**
-
-Mudanças:
-- Aceitar processamento de grandes volumes (até 180k escolas)
-- Processar IA em paralelo (Promise.all com limite de concorrência)
-- Retornar resposta inicial imediata com ID de job
-- Opção para processamento síncrono (preview) ou assíncrono (importação grande)
-- Adicionar rate limiting para evitar sobrecarga da API de IA
-- Melhorar logs de progresso
-
-Estrutura da resposta:
-```typescript
-// Para preview (até 100 escolas)
-{ preview: [...], mode: "sync" }
-
-// Para importação grande
-{ 
-  mode: "async",
-  total: 180000,
-  processed: 180000,
-  inserted: 179500,
-  errors: [...]
-}
-```
-
----
-
-## Problema 2: Admin Não Abre
-
-### Diagnóstico
+No arquivo `src/contexts/AuthContext.tsx`, o `setIsLoading(false)` é executado ANTES da função `checkAdminRole` terminar:
 
 ```text
 Fluxo atual (com bug):
 1. getSession() retorna sessão
 2. checkAdminRole(userId) ← INICIA mas não espera
-3. setIsLoading(false) ← Executa ANTES do check terminar
+3. setIsLoading(false) ← Executado IMEDIATAMENTE
 4. AdminLayout: isLoading=false, isAdmin=false → REDIRECIONA
-5. checkAdminRole termina: setIsAdmin(true) ← Tarde demais!
+5. checkAdminRole termina tarde demais
 ```
 
 ### Solução
 
-**Arquivo: `src/contexts/AuthContext.tsx`**
+Refatorar o `useEffect` para aguardar a verificação de admin usando async/await com try/finally:
 
-Mudanças:
-- Aguardar `checkAdminRole` ANTES de `setIsLoading(false)`
-- Usar função assíncrona com `try/finally` para garantir ordem
-- Manter o `setTimeout` no listener para evitar deadlock
+**Arquivo:** `src/contexts/AuthContext.tsx`
 
-Código corrigido:
+Mudanças no bloco `useEffect` (linhas 23-49):
+- Extrair a lógica de inicialização para uma função assíncrona `initializeAuth`
+- Usar `await checkAdminRole(session.user.id)` para aguardar a conclusão
+- Mover `setIsLoading(false)` para o bloco `finally`
+
+---
+
+## Parte 2: Otimização do Processamento CSV
+
+### Problema Identificado
+
+O fluxo atual envia o CSV em chunks de 500 e processa com IA durante o envio:
+
+```text
+Frontend → Envia 500 escolas → Edge Function → 10 chamadas IA → Retorna
+Frontend → Envia próximas 500 → Edge Function → 10 chamadas IA → Retorna
+... repete para cada chunk
+```
+
+Para 180.000 escolas = 360 chamadas sequenciais de edge function!
+
+### Solução: Processamento em Duas Etapas
+
+Novo fluxo:
+```text
+1. Upload: Parse local instantâneo → Mostra contagem
+2. Preview: Chama IA para 10 escolas (opcional, rápido)
+3. Processamento: Envia TUDO para edge function de uma vez
+4. Edge Function: Processa IA em paralelo com concorrência controlada
+```
+
+### Arquivo 1: `src/components/admin/SchoolImportDialog.tsx`
+
+Mudanças principais:
+- Adicionar novo estágio "uploading" entre upload e preview
+- Remover processamento em chunks no frontend
+- Enviar todas as escolas de uma vez para o backend
+- Adicionar estimativa de tempo e contador de progresso baseado em eventos SSE (opcional)
+- Simplificar a lógica de progresso (100% quando termina)
+
+### Arquivo 2: `supabase/functions/process-schools-csv/index.ts`
+
+Mudanças principais:
+- Adicionar função `processInParallel` para controle de concorrência
+- Processar batches de IA em paralelo (5 simultâneos) em vez de sequencial
+- Melhorar logging com contadores de progresso
+- Otimizar inserções no banco usando upsert quando possível
+
+**Nova função de concorrência:**
 ```typescript
-useEffect(() => {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-
-      if (session?.user) {
-        setTimeout(() => {
-          checkAdminRole(session.user.id);
-        }, 0);
-      } else {
-        setIsAdmin(false);
-      }
-    }
-  );
-
-  // Função assíncrona para inicialização
-  const initializeAuth = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await checkAdminRole(session.user.id); // AGUARDA conclusão
-      }
-    } catch (error) {
-      console.error("Error initializing auth:", error);
-    } finally {
-      setIsLoading(false); // Só executa APÓS o check
-    }
-  };
-
-  initializeAuth();
-
-  return () => subscription.unsubscribe();
-}, []);
+async function processInParallel<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]>
 ```
 
 ---
@@ -144,56 +95,33 @@ useEffect(() => {
 | Arquivo | Tipo | Descrição |
 |---------|------|-----------|
 | `src/contexts/AuthContext.tsx` | Correção | Aguardar verificação de admin antes de liberar loading |
-| `src/components/admin/SchoolImportDialog.tsx` | Refatoração | Separar upload de processamento, processar tudo no final |
-| `supabase/functions/process-schools-csv/index.ts` | Otimização | Processar IA em paralelo com limite de concorrência |
+| `src/components/admin/SchoolImportDialog.tsx` | Otimização | Enviar todas escolas de uma vez, não em chunks |
+| `supabase/functions/process-schools-csv/index.ts` | Otimização | Processar IA em paralelo com concorrência controlada |
 
 ---
 
-## Detalhes Técnicos
+## Estimativas de Performance
 
-### Concorrência Controlada na Edge Function
+**Antes (180.000 escolas):**
+- 360 chamadas de edge function sequenciais
+- Cada chamada: ~160 segundos (10 batches de IA x 16s cada)
+- Tempo total estimado: ~16 horas
 
-Para evitar sobrecarga da API de IA, usar um pool de workers:
-
-```typescript
-async function processInParallel<T, R>(
-  items: T[],
-  processor: (item: T) => Promise<R>,
-  concurrency: number
-): Promise<R[]> {
-  const results: R[] = [];
-  const executing: Promise<void>[] = [];
-  
-  for (const item of items) {
-    const p = processor(item).then(r => { results.push(r); });
-    executing.push(p);
-    
-    if (executing.length >= concurrency) {
-      await Promise.race(executing);
-      executing.splice(executing.findIndex(e => e), 1);
-    }
-  }
-  
-  await Promise.all(executing);
-  return results;
-}
-```
-
-### Estimativa de Tempo
-
-Para 180.000 escolas com as otimizações:
+**Depois (180.000 escolas):**
+- 1 chamada de edge function
 - Batches de IA: 3.600 (50 escolas cada)
 - Concorrência: 5 chamadas simultâneas
-- Tempo estimado por chamada: ~2 segundos
-- Tempo total: ~24 minutos (vs horas no modelo atual)
+- Tempo por batch: ~2 segundos
+- Tempo total estimado: ~24 minutos
 
 ---
 
 ## Comportamento Esperado Após Implementação
 
-1. **Upload CSV**: Instantâneo (parsing local)
-2. **Preview**: Mostra primeiras escolas SEM processamento IA
-3. **Botão "Processar"**: Envia tudo para backend
-4. **Processamento**: Barra de progresso com % real
-5. **Conclusão**: Toast com resumo dos resultados
-6. **Admin**: Acesso imediato após login para usuários com role admin
+1. **Admin**: Acesso imediato após login para usuários com role admin
+2. **Upload CSV**: Parse local instantâneo
+3. **Preview**: IA processa 10 escolas para demonstração (opcional)
+4. **Botão "Importar"**: Envia tudo para backend
+5. **Processamento**: Edge function processa em paralelo
+6. **Conclusão**: Toast com resumo completo
+

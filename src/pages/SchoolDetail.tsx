@@ -10,14 +10,17 @@ import {
   ShoppingCart,
   ExternalLink,
   Check,
-  Copy
+  Copy,
+  Plus,
+  Minus
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import { useCart, CartItem } from "@/hooks/use-cart";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -52,6 +55,7 @@ export default function SchoolDetail() {
   const [selectedGradeId, setSelectedGradeId] = useState<string>("");
   const [copiedLink, setCopiedLink] = useState(false);
   const { trackSchoolView, trackListView } = useAnalytics();
+  const { isInCart, toggleItem, addItem } = useCart();
 
   // Fetch school
   const { data: school, isLoading: isLoadingSchool } = useQuery({
@@ -334,19 +338,48 @@ export default function SchoolDetail() {
               </CardContent>
             </Card>
 
-            {/* Official badge + Materials list */}
+            {/* Official badge + Add all button + Materials list */}
             {selectedList && (
               <div className="space-y-6">
-                {(selectedList as any).is_official && (
-                  <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3">
-                    <Badge variant="default" className="bg-success text-success-foreground">
-                      ✓ Lista Oficial da Escola
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      Esta é a lista oficial de materiais para {selectedList.grades?.name}
-                    </span>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {(selectedList as any).is_official && (
+                    <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2">
+                      <Badge variant="default" className="bg-success text-success-foreground">
+                        ✓ Lista Oficial
+                      </Badge>
+                    </div>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="ml-auto gap-2"
+                    onClick={() => {
+                      if (!selectedList?.material_items || !school) return;
+                      selectedList.material_items.forEach((item) => {
+                        if (!isInCart(item.id)) {
+                          addItem({
+                            id: item.id,
+                            name: item.name,
+                            quantity: item.quantity || 1,
+                            unit: item.unit,
+                            price_estimate: item.price_estimate,
+                            purchase_url: item.purchase_url,
+                            brand_suggestion: item.brand_suggestion,
+                            schoolId: school.id,
+                            schoolName: school.name,
+                            gradeName: selectedList.grades?.name || "",
+                          });
+                        }
+                      });
+                      toast({
+                        title: "Itens adicionados ao carrinho",
+                        description: `${selectedList.material_items.length} itens foram adicionados.`,
+                      });
+                    }}
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                    Adicionar Todos
+                  </Button>
+                </div>
                 {Object.entries(itemsByCategory).map(([categoryName, { category, items }]) => (
                   <Card key={categoryName} className="overflow-hidden">
                     <CardHeader className="bg-muted/50">
@@ -386,21 +419,52 @@ export default function SchoolDetail() {
                               </p>
                             )}
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
                             {item.price_estimate && (
                               <span className="text-sm font-medium text-foreground">
                                 R$ {(item.price_estimate * (item.quantity || 1)).toFixed(2)}
                               </span>
                             )}
+                            <Button
+                              size="sm"
+                              variant={isInCart(item.id) ? "default" : "outline"}
+                              className="gap-1"
+                              onClick={() => {
+                                const cartItem: CartItem = {
+                                  id: item.id,
+                                  name: item.name,
+                                  quantity: item.quantity || 1,
+                                  unit: item.unit,
+                                  price_estimate: item.price_estimate,
+                                  purchase_url: item.purchase_url,
+                                  brand_suggestion: item.brand_suggestion,
+                                  schoolId: school!.id,
+                                  schoolName: school!.name,
+                                  gradeName: selectedList!.grades?.name || "",
+                                };
+                                toggleItem(cartItem);
+                              }}
+                            >
+                              {isInCart(item.id) ? (
+                                <>
+                                  <Check className="h-4 w-4" />
+                                  <span className="hidden sm:inline">Adicionado</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Plus className="h-4 w-4" />
+                                  <span className="hidden sm:inline">Adicionar</span>
+                                </>
+                              )}
+                            </Button>
                             {item.purchase_url && (
                               <Button
                                 size="sm"
-                                variant="outline"
+                                variant="ghost"
                                 className="gap-1"
                                 onClick={() => handlePurchaseClick(item)}
                               >
-                                <ShoppingCart className="h-4 w-4" />
-                                <span className="hidden sm:inline">Comprar</span>
+                                <ExternalLink className="h-4 w-4" />
                               </Button>
                             )}
                           </div>

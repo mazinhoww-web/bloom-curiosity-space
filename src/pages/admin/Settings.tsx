@@ -1,6 +1,6 @@
 /**
  * Admin Settings Page - Configurações do sistema
- * Inclui configuração do cron job de cache refresh
+ * Inclui configuração do cron job de cache refresh e métricas de AI
  */
 
 import { useState } from "react";
@@ -34,6 +34,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { AIProviderMetrics } from "@/components/admin/AIProviderMetrics";
 
 interface CacheRefreshSettings {
   enabled: boolean;
@@ -337,6 +338,11 @@ export default function AdminSettings() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* AI Provider Metrics */}
+      <div className="mt-6">
+        <AIProviderMetrics />
       </div>
 
       {/* Cron Setup Instructions */}

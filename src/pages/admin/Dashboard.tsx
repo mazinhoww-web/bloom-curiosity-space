@@ -163,6 +163,84 @@ export default function Dashboard() {
     },
   });
 
+  // Fetch schools without lists - ACTIONABLE DATA
+  const { data: schoolsWithoutLists, isLoading: loadingNoLists } = useQuery({
+    queryKey: ["admin-schools-no-lists"],
+    queryFn: async () => {
+      // Get schools that have no material_lists
+      const { data, error } = await supabase
+        .from("schools")
+        .select(`
+          id, name, slug, city, state,
+          material_lists (id)
+        `)
+        .eq("is_active", true)
+        .limit(100);
+      
+      if (error) throw error;
+      
+      // Filter schools with no lists
+      const noLists = (data || [])
+        .filter((s: any) => !s.material_lists || s.material_lists.length === 0)
+        .slice(0, 5);
+      
+      return noLists;
+    },
+    staleTime: 60000,
+  });
+
+  // Fetch top searched schools - from analytics view
+  const { data: topSearchedSchools, isLoading: loadingTopSearched } = useQuery({
+    queryKey: ["admin-top-searched-schools"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("analytics_top_schools")
+        .select("school_id, school_name, city, state, total_views, engagement_score")
+        .order("total_views", { ascending: false })
+        .limit(5);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 60000,
+  });
+
+  // Fetch most shared lists
+  const { data: mostSharedLists, isLoading: loadingShared } = useQuery({
+    queryKey: ["admin-most-shared-lists"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("share_events")
+        .select(`
+          list_id,
+          material_lists (
+            id,
+            year,
+            grades (name),
+            schools (name, slug)
+          )
+        `)
+        .gte("shared_at", sevenDaysAgo);
+
+      if (error) throw error;
+      
+      // Aggregate by list_id
+      const counts: Record<string, { list: any; count: number }> = {};
+      for (const event of data || []) {
+        if (!event.list_id || !event.material_lists) continue;
+        if (!counts[event.list_id]) {
+          counts[event.list_id] = { list: event.material_lists, count: 0 };
+        }
+        counts[event.list_id].count++;
+      }
+      
+      return Object.entries(counts)
+        .map(([id, { list, count }]) => ({ id, ...list, shareCount: count }))
+        .sort((a, b) => b.shareCount - a.shareCount)
+        .slice(0, 5);
+    },
+    staleTime: 60000,
+  });
+
   const formatNumber = (n: number) => n.toLocaleString("pt-BR");
 
   const TrendIndicator = ({ current, previous }: { current: number; previous: number }) => {
@@ -337,6 +415,125 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      </section>
+
+      {/* ACTIONABLE DATA - Dados Acionáveis */}
+      <section className="mb-8">
+        <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
+          <AlertTriangle className="h-5 w-5 text-warning" />
+          Ações Recomendadas
+        </h2>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Schools without lists */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <School className="h-4 w-4 text-destructive" />
+                Escolas Sem Listas
+              </CardTitle>
+              <CardDescription>Escolas ativas que precisam de listas de materiais</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingNoLists ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : schoolsWithoutLists && schoolsWithoutLists.length > 0 ? (
+                <div className="space-y-2">
+                  {schoolsWithoutLists.map((school: any) => (
+                    <div key={school.id} className="flex items-center justify-between rounded-lg bg-muted/50 p-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{school.name}</p>
+                        <p className="text-xs text-muted-foreground">{school.city}, {school.state}</p>
+                      </div>
+                      <Link to={`/admin/listas?escola=${school.id}`}>
+                        <Button size="sm" variant="outline">Criar lista</Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-6 text-center">
+                  <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-success" />
+                  <p className="text-sm text-muted-foreground">Todas as escolas têm listas!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Top searched schools */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Eye className="h-4 w-4 text-primary" />
+                Escolas Mais Buscadas
+              </CardTitle>
+              <CardDescription>Maior demanda por views de página</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingTopSearched ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : topSearchedSchools && topSearchedSchools.length > 0 ? (
+                <div className="space-y-2">
+                  {topSearchedSchools.map((school: any, i: number) => (
+                    <div key={school.school_id} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2">
+                      <span className="text-sm font-bold text-muted-foreground w-5">#{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{school.school_name}</p>
+                        <p className="text-xs text-muted-foreground">{school.city}, {school.state}</p>
+                      </div>
+                      <Badge variant="secondary">{school.total_views} views</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-6 text-center text-sm text-muted-foreground">Nenhum dado ainda</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Most shared lists */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Share2 className="h-4 w-4 text-success" />
+                Listas Mais Compartilhadas
+              </CardTitle>
+              <CardDescription>Últimos 7 dias - maior engajamento</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingShared ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : mostSharedLists && mostSharedLists.length > 0 ? (
+                <div className="space-y-2">
+                  {mostSharedLists.map((list: any, i: number) => (
+                    <div key={list.id} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2">
+                      <span className="text-sm font-bold text-muted-foreground w-5">#{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">
+                          {(list.grades as any)?.name || "Série"} - {list.year}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {(list.schools as any)?.name || "Escola"}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="gap-1">
+                        <Share2 className="h-3 w-3" />
+                        {list.shareCount}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-6 text-center text-sm text-muted-foreground">Nenhum compartilhamento recente</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </section>
 

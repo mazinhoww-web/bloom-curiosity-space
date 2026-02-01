@@ -33,6 +33,7 @@ import { format, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -160,17 +161,8 @@ export default function Analytics() {
       .slice(0, 10);
   }, [purchaseEvents]);
 
-  const isLoading = loadingDaily || loadingSchools || loadingGrades || loadingStores || loadingRegion;
-
-  if (isLoading) {
-    return (
-      <AdminLayout title="Analytics" description="Métricas e estatísticas da plataforma">
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </AdminLayout>
-    );
-  }
+  // Show partial data while loading - don't block the entire page
+  const isLoadingAll = loadingDaily && loadingSchools && loadingGrades && loadingStores && loadingRegion;
 
   // Calculate totals from daily summary
   const totals = dailySummary?.reduce(
@@ -195,7 +187,11 @@ export default function Analytics() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Views de Listas</p>
-              <p className="text-2xl font-bold">{totals.listViews.toLocaleString()}</p>
+              {loadingDaily ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-bold">{totals.listViews.toLocaleString()}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -207,7 +203,11 @@ export default function Analytics() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Views de Escolas</p>
-              <p className="text-2xl font-bold">{totals.schoolViews.toLocaleString()}</p>
+              {loadingDaily ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-bold">{totals.schoolViews.toLocaleString()}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -219,7 +219,11 @@ export default function Analytics() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Cliques em Lojas</p>
-              <p className="text-2xl font-bold">{totals.storeClicks.toLocaleString()}</p>
+              {loadingDaily ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-bold">{totals.storeClicks.toLocaleString()}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -231,7 +235,11 @@ export default function Analytics() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Compartilhamentos</p>
-              <p className="text-2xl font-bold">{totals.shares.toLocaleString()}</p>
+              {loadingDaily ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-bold">{totals.shares.toLocaleString()}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -243,7 +251,11 @@ export default function Analytics() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Buscas por CEP</p>
-              <p className="text-2xl font-bold">{totals.cepSearches.toLocaleString()}</p>
+              {loadingDaily ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-bold">{totals.cepSearches.toLocaleString()}</p>
+              )}
             </div>
           </CardContent>
         </Card>

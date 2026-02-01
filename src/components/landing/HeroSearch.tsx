@@ -1,9 +1,9 @@
-import { Search, Upload, ChevronRight, Heart } from "lucide-react";
+import { Upload, ChevronRight, Heart } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { formatCep, normalizeCep, isCepSearch } from "@/lib/school-utils";
+import { CepAutocomplete } from "@/components/search/CepAutocomplete";
+import { normalizeCep, isCepSearch } from "@/lib/school-utils";
 
 export function HeroSearch() {
   const [cep, setCep] = useState("");
@@ -17,9 +17,11 @@ export function HeroSearch() {
     }
   };
 
-  const handleCepChange = (value: string) => {
-    // Format CEP as user types
-    setCep(formatCep(value));
+  const handleCepSelect = (selectedCep: string) => {
+    const cleanCep = normalizeCep(selectedCep);
+    if (cleanCep.length >= 5) {
+      navigate(`/escolas?cep=${cleanCep}`);
+    }
   };
 
   const isValidCep = isCepSearch(cep);
@@ -65,20 +67,17 @@ export function HeroSearch() {
             Organizada, pronta para compartilhar e com links diretos para compra.
           </p>
 
-          {/* Search Form */}
+          {/* Search Form with Autocomplete */}
           <form onSubmit={handleSearch} className="mx-auto max-w-lg">
             <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="relative flex-1">
-                <Input
-                  type="text"
-                  placeholder="Digite o CEP da escola (mín. 5 dígitos)"
-                  value={cep}
-                  onChange={(e) => handleCepChange(e.target.value)}
-                  maxLength={9}
-                  className="h-14 rounded-xl border-0 bg-white pl-5 pr-12 text-lg shadow-xl placeholder:text-muted-foreground/70 focus-visible:ring-4 focus-visible:ring-white/30"
-                />
-                <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              </div>
+              <CepAutocomplete
+                value={cep}
+                onChange={setCep}
+                onSelect={handleCepSelect}
+                placeholder="Digite o CEP da escola (mín. 5 dígitos)"
+                className="flex-1"
+                inputClassName="h-14 rounded-xl border-0 bg-white pl-5 pr-12 text-lg shadow-xl placeholder:text-muted-foreground/70 focus-visible:ring-4 focus-visible:ring-white/30"
+              />
               <Button 
                 type="submit" 
                 size="lg"

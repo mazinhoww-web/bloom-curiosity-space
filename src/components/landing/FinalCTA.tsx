@@ -1,8 +1,9 @@
-import { Search, ChevronRight, Heart } from "lucide-react";
+import { ChevronRight, Heart } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { CepAutocomplete } from "@/components/search/CepAutocomplete";
+import { normalizeCep, isCepSearch } from "@/lib/school-utils";
 
 export function FinalCTA() {
   const [cep, setCep] = useState("");
@@ -10,16 +11,20 @@ export function FinalCTA() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (cep.trim()) {
-      navigate(`/escolas?cep=${cep.replace(/\D/g, "")}`);
+    const cleanCep = normalizeCep(cep);
+    if (cleanCep.length >= 5) {
+      navigate(`/escolas?cep=${cleanCep}`);
     }
   };
 
-  const formatCep = (value: string) => {
-    const numbers = value.replace(/\D/g, "");
-    if (numbers.length <= 5) return numbers;
-    return `${numbers.slice(0, 5)}-${numbers.slice(5, 8)}`;
+  const handleCepSelect = (selectedCep: string) => {
+    const cleanCep = normalizeCep(selectedCep);
+    if (cleanCep.length >= 5) {
+      navigate(`/escolas?cep=${cleanCep}`);
+    }
   };
+
+  const isValidCep = isCepSearch(cep);
 
   return (
     <section className="py-20 md:py-28 bg-gradient-to-br from-primary via-primary to-secondary">
@@ -39,24 +44,22 @@ export function FinalCTA() {
             Digite o CEP e veja a lista de materiais da escola do seu filho agora mesmo.
           </p>
 
-          {/* Search Form */}
+          {/* Search Form with Autocomplete */}
           <form onSubmit={handleSearch} className="mx-auto max-w-lg">
             <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="relative flex-1">
-                <Input
-                  type="text"
-                  placeholder="Digite o CEP da escola"
-                  value={cep}
-                  onChange={(e) => setCep(formatCep(e.target.value))}
-                  maxLength={9}
-                  className="h-14 rounded-xl border-0 bg-white pl-5 pr-12 text-lg shadow-xl placeholder:text-muted-foreground/70 focus-visible:ring-4 focus-visible:ring-white/30"
-                />
-                <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              </div>
+              <CepAutocomplete
+                value={cep}
+                onChange={setCep}
+                onSelect={handleCepSelect}
+                placeholder="Digite o CEP da escola"
+                className="flex-1"
+                inputClassName="h-14 rounded-xl border-0 bg-white pl-5 pr-12 text-lg shadow-xl placeholder:text-muted-foreground/70 focus-visible:ring-4 focus-visible:ring-white/30"
+              />
               <Button 
                 type="submit" 
                 size="lg"
-                className="h-14 rounded-xl bg-accent px-8 text-lg font-bold shadow-xl transition-all hover:scale-105 hover:bg-accent/90"
+                disabled={!isValidCep}
+                className="h-14 rounded-xl bg-accent px-8 text-lg font-bold shadow-xl transition-all hover:scale-105 hover:bg-accent/90 disabled:opacity-50"
               >
                 Buscar
                 <ChevronRight className="ml-1 h-5 w-5" />

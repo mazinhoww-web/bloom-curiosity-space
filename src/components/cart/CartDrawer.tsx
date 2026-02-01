@@ -1,6 +1,7 @@
-import { ShoppingCart, Trash2, ExternalLink, X } from "lucide-react";
+import { ShoppingCart, Trash2, ExternalLink, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Sheet,
   SheetContent,
@@ -16,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
 export function CartDrawer() {
-  const { items, removeItem, clearCart, totalItems, totalEstimate, itemsWithPurchaseUrl } = useCart();
+  const { items, removeItem, clearCart, totalItems, totalEstimate, itemsWithPurchaseUrl, toggleOwned, ownedCount, itemsNotOwned } = useCart();
   const { toast } = useToast();
 
   const handleBuyAll = async () => {
@@ -93,7 +94,14 @@ export function CartDrawer() {
             <ShoppingCart className="h-5 w-5" />
             Meu Carrinho
             {totalItems > 0 && (
-              <Badge variant="secondary">{totalItems} itens</Badge>
+              <div className="flex gap-2">
+                <Badge variant="secondary">{totalItems} itens</Badge>
+                {ownedCount > 0 && (
+                  <Badge variant="outline" className="text-success border-success">
+                    {ownedCount} já tenho
+                  </Badge>
+                )}
+              </div>
             )}
           </SheetTitle>
         </SheetHeader>
@@ -121,10 +129,22 @@ export function CartDrawer() {
                       {schoolItems.map((item) => (
                         <div
                           key={item.id}
-                          className="flex items-start gap-3 rounded-lg border p-3"
+                          className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                            item.owned ? "bg-muted/50 border-muted" : ""
+                          }`}
                         >
+                          <div className="flex items-center pt-1">
+                            <Checkbox
+                              id={`owned-${item.id}`}
+                              checked={item.owned || false}
+                              onCheckedChange={() => toggleOwned(item.id)}
+                              aria-label="Já tenho este item"
+                            />
+                          </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{item.name}</p>
+                            <p className={`font-medium truncate ${item.owned ? "line-through text-muted-foreground" : ""}`}>
+                              {item.name}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {item.quantity} {item.unit || "un"} • {item.gradeName}
                             </p>
@@ -133,11 +153,16 @@ export function CartDrawer() {
                                 Sugestão: {item.brand_suggestion}
                               </p>
                             )}
-                            {item.price_estimate && (
+                            {item.owned ? (
+                              <p className="mt-1 text-xs font-medium text-success flex items-center gap-1">
+                                <Check className="h-3 w-3" />
+                                Já tenho
+                              </p>
+                            ) : item.price_estimate ? (
                               <p className="mt-1 text-sm font-medium text-primary">
                                 {formatPrice(item.price_estimate * (item.quantity || 1))}
                               </p>
-                            )}
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-1">
                             {item.purchase_url && (
@@ -172,7 +197,7 @@ export function CartDrawer() {
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">
-                  Total estimado:
+                  Falta comprar ({itemsNotOwned.length} itens):
                 </span>
                 <span className="text-lg font-bold">
                   {formatPrice(totalEstimate)}

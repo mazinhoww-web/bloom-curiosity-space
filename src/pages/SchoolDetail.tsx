@@ -169,22 +169,48 @@ export default function SchoolDetail() {
   }, [selectedList]);
 
   // Calculate totals (excluding owned items)
-  const { totalEstimate, essentialCount, optionalCount, hasAnyPrice } = useMemo(() => {
-    if (!selectedList?.material_items) return { totalEstimate: 0, essentialCount: 0, optionalCount: 0, hasAnyPrice: false };
+  const costSummary = useMemo(() => {
+    if (!selectedList?.material_items) {
+      return { 
+        totalEstimate: 0, 
+        essentialCount: 0, 
+        optionalCount: 0, 
+        hasAnyPrice: false,
+        itemsWithPrice: 0,
+        itemsWithoutPrice: 0,
+        allHavePrices: false,
+        pendingItems: 0,
+      };
+    }
     
     const items = selectedList.material_items;
+    const pendingItems = items.filter(i => !isOwned(i.id));
+    
     const essentialCount = items.filter(i => i.is_required !== false).length;
     const optionalCount = items.filter(i => i.is_required === false).length;
-    const hasAnyPrice = items.some(i => i.price_estimate && i.price_estimate > 0);
     
-    const totalEstimate = items
-      .filter((item) => !isOwned(item.id))
-      .reduce((sum, item) => {
-        return sum + (item.price_estimate || 0) * (item.quantity || 1);
-      }, 0);
+    const itemsWithPrice = pendingItems.filter(i => i.price_estimate && i.price_estimate > 0).length;
+    const itemsWithoutPrice = pendingItems.length - itemsWithPrice;
+    const hasAnyPrice = itemsWithPrice > 0;
+    const allHavePrices = itemsWithoutPrice === 0 && pendingItems.length > 0;
+    
+    const totalEstimate = pendingItems.reduce((sum, item) => {
+      return sum + (item.price_estimate || 0) * (item.quantity || 1);
+    }, 0);
       
-    return { totalEstimate, essentialCount, optionalCount, hasAnyPrice };
+    return { 
+      totalEstimate, 
+      essentialCount, 
+      optionalCount, 
+      hasAnyPrice,
+      itemsWithPrice,
+      itemsWithoutPrice,
+      allHavePrices,
+      pendingItems: pendingItems.length,
+    };
   }, [selectedList, isOwned]);
+  
+  const { totalEstimate, essentialCount, optionalCount, hasAnyPrice, itemsWithPrice, itemsWithoutPrice, allHavePrices, pendingItems } = costSummary;
 
   // Track purchase click
   const handlePurchaseClick = async (item: MaterialItem) => {
@@ -385,36 +411,65 @@ export default function SchoolDetail() {
                 <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
                   <CardContent className="p-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <p className="text-sm text-muted-foreground">
-                          {hasAnyPrice ? "Valor estimado da lista" : "Total de itens"}
-                        </p>
+                      <div className="space-y-2">
+                        {/* Cost estimate section */}
                         {hasAnyPrice ? (
-                          <p className="font-display text-2xl font-bold text-primary">
-                            R$ {totalEstimate.toFixed(2)}
-                            {ownedCount > 0 && (
-                              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                                (já tenho {ownedCount})
-                              </span>
-                            )}
-                          </p>
+                          <div>
+                            <div className="flex items-baseline gap-2">
+                              <p className="font-display text-3xl font-bold text-primary">
+                                R$ {totalEstimate.toFixed(2)}
+                              </p>
+                              {!allHavePrices && (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">
+                                  valor estimado
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {allHavePrices ? (
+                                <>✓ {itemsWithPrice} itens com preço</>
+                              ) : (
+                                <>{itemsWithPrice} com preço • {itemsWithoutPrice} sem preço definido</>
+                              )}
+                              {ownedCount > 0 && (
+                                <span className="ml-1 text-success">(já tenho {ownedCount})</span>
+                              )}
+                            </p>
+                          </div>
                         ) : (
-                          <p className="font-display text-2xl font-bold text-foreground">
-                            {selectedList.material_items?.length || 0} itens
-                          </p>
+                          <div>
+                            <p className="font-display text-3xl font-bold text-foreground">
+                              {pendingItems} itens
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              para comprar
+                              {ownedCount > 0 && (
+                                <span className="ml-1 text-success">(já tenho {ownedCount})</span>
+                              )}
+                            </p>
+                          </div>
                         )}
-                        <div className="flex flex-wrap gap-2 pt-1">
+                        
+                        {/* Badges */}
+                        <div className="flex flex-wrap gap-2">
                           {essentialCount > 0 && (
-                            <Badge className="bg-primary/10 text-primary border-primary/20">
-                              {essentialCount} essenciais
+                            <Badge className="bg-primary text-primary-foreground text-xs">
+                              ⭐ {essentialCount} essenciais
                             </Badge>
                           )}
                           {optionalCount > 0 && (
-                            <Badge variant="outline" className="text-muted-foreground">
+                            <Badge variant="outline" className="text-muted-foreground text-xs">
                               {optionalCount} opcionais
                             </Badge>
                           )}
                         </div>
+                        
+                        {/* Disclaimer */}
+                        {hasAnyPrice && (
+                          <p className="text-xs text-muted-foreground italic">
+                            *Preços podem variar. Consulte a loja.
+                          </p>
+                        )}
                       </div>
                       <Button
                         size="lg"
@@ -635,24 +690,34 @@ export default function SchoolDetail() {
                   <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
                     {hasAnyPrice ? (
                       <>
-                        <p className="text-xs text-muted-foreground mb-1">
-                          {ownedCount > 0 ? "Valor estimado restante" : "Valor estimado total"}
-                        </p>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-muted-foreground">
+                            {ownedCount > 0 ? "Valor estimado restante" : "Valor estimado"}
+                          </p>
+                          {!allHavePrices && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                              parcial
+                            </Badge>
+                          )}
+                        </div>
                         <p className="font-display text-2xl font-bold text-primary">
                           R$ {totalEstimate.toFixed(2)}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          *Preços podem variar conforme a loja
+                          {allHavePrices 
+                            ? `${itemsWithPrice} itens com preço`
+                            : `${itemsWithPrice} com preço • ${itemsWithoutPrice} sem`
+                          }
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-2 italic">
+                          *Preços podem variar
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="text-xs text-muted-foreground mb-1">Total de itens</p>
+                        <p className="text-xs text-muted-foreground mb-1">Falta comprar</p>
                         <p className="font-display text-2xl font-bold text-foreground">
-                          {(selectedList.material_items?.length || 0) - ownedCount} itens
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          para comprar
+                          {pendingItems} itens
                         </p>
                       </>
                     )}

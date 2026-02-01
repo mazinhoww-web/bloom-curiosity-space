@@ -40,6 +40,14 @@
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
+    /* Success - Verde */
+    --success: 158 64% 52%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning - Laranja/Amarelo */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
     /* Border and input */
     --border: 214 32% 91%;
     --input: 214 32% 91%;
@@ -93,6 +101,12 @@
 
     --destructive: 0 62% 30%;
     --destructive-foreground: 210 40% 98%;
+
+    --success: 158 64% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
 
     --border: 230 25% 20%;
     --input: 230 25% 20%;

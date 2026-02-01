@@ -160,6 +160,7 @@ export type Database = {
           price_estimate: number | null
           purchase_url: string | null
           quantity: number | null
+          search_query: string | null
           unit: string | null
           updated_at: string
         }
@@ -175,6 +176,7 @@ export type Database = {
           price_estimate?: number | null
           purchase_url?: string | null
           quantity?: number | null
+          search_query?: string | null
           unit?: string | null
           updated_at?: string
         }
@@ -190,6 +192,7 @@ export type Database = {
           price_estimate?: number | null
           purchase_url?: string | null
           quantity?: number | null
+          search_query?: string | null
           unit?: string | null
           updated_at?: string
         }
@@ -257,6 +260,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      partner_stores: {
+        Row: {
+          affiliate_tag: string | null
+          base_url: string
+          created_at: string
+          id: string
+          is_active: boolean
+          logo_url: string | null
+          name: string
+          order_index: number
+          search_template: string
+          updated_at: string
+        }
+        Insert: {
+          affiliate_tag?: string | null
+          base_url: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name: string
+          order_index?: number
+          search_template: string
+          updated_at?: string
+        }
+        Update: {
+          affiliate_tag?: string | null
+          base_url?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name?: string
+          order_index?: number
+          search_template?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       purchase_events: {
         Row: {
@@ -428,6 +470,71 @@ export type Database = {
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      store_click_events: {
+        Row: {
+          clicked_at: string
+          id: string
+          item_id: string | null
+          list_id: string | null
+          referrer: string | null
+          school_id: string | null
+          session_id: string | null
+          store_id: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          clicked_at?: string
+          id?: string
+          item_id?: string | null
+          list_id?: string | null
+          referrer?: string | null
+          school_id?: string | null
+          session_id?: string | null
+          store_id?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          clicked_at?: string
+          id?: string
+          item_id?: string | null
+          list_id?: string | null
+          referrer?: string | null
+          school_id?: string | null
+          session_id?: string | null
+          store_id?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_click_events_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "material_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "material_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_click_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "partner_stores"
             referencedColumns: ["id"]
           },
         ]

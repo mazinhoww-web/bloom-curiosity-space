@@ -9,7 +9,7 @@
  */
 
 import { Link } from "react-router-dom";
-import { BookOpen, Menu, X, Upload, Users, Building2, Store, Tag } from "lucide-react";
+import { BookOpen, Menu, X, Upload, Users, Building2, Store, Tag, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { CartDrawer } from "@/components/cart/CartDrawer";
@@ -69,6 +69,13 @@ export function Header() {
             <Button variant="default" size="sm" className="gap-1">
               <Upload className="h-4 w-4" />
               Contribuir
+            </Button>
+          </Link>
+
+          <Link to="/auth">
+            <Button variant="outline" size="sm" className="gap-1">
+              <LogIn className="h-4 w-4" />
+              Entrar
             </Button>
           </Link>
 
@@ -159,6 +166,16 @@ export function Header() {
             >
               <Upload className="h-4 w-4" />
               Contribuir Lista
+            </Link>
+
+            {/* Login */}
+            <Link 
+              to="/auth" 
+              className="rounded-lg px-3 py-3 text-sm font-medium transition-colors border border-border flex items-center justify-center gap-2"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <LogIn className="h-4 w-4" />
+              Entrar
             </Link>
           </div>
         </nav>

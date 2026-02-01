@@ -45,6 +45,7 @@ import { useOwnedItems } from "@/hooks/use-owned-items";
 import { StorePurchaseButton } from "@/components/purchase/StorePurchaseButton";
 import { StoreComparisonSection } from "@/components/purchase/StoreComparisonSection";
 import { ListStatusBanner } from "@/components/lists/ListStatusBadge";
+import { ClaimSchoolCTA } from "@/components/school/ClaimSchoolCTA";
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
 }
@@ -376,6 +377,13 @@ export default function SchoolDetail() {
               </div>
             </div>
           </div>
+
+          {/* Claim School CTA */}
+          <ClaimSchoolCTA 
+            schoolId={school.id} 
+            schoolName={school.name}
+            schoolSlug={school.slug}
+          />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

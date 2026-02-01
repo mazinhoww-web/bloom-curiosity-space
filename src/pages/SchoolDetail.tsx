@@ -41,6 +41,7 @@ import {
 } from "@/types/database";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { useOwnedItems } from "@/hooks/use-owned-items";
+import { StorePurchaseButton } from "@/components/purchase/StorePurchaseButton";
 interface MaterialItemWithCategory extends MaterialItem {
   material_categories: MaterialCategory | null;
 }
@@ -617,15 +618,16 @@ export default function SchoolDetail() {
                                   )}
                                 </Button>
                               )}
-                              {!itemOwned && item.purchase_url && (
-                                <Button
+                              {/* Partner Store Purchase Button */}
+                              {!itemOwned && (
+                                <StorePurchaseButton
+                                  itemId={item.id}
+                                  itemName={item.name}
+                                  schoolId={school?.id}
+                                  listId={selectedList?.id}
                                   size="sm"
                                   variant="ghost"
-                                  className="gap-1"
-                                  onClick={() => handlePurchaseClick(item)}
-                                >
-                                  <ExternalLink className="h-4 w-4" />
-                                </Button>
+                                />
                               )}
                             </div>
                           </div>

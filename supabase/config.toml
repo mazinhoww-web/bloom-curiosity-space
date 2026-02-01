@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.analyze-material-list]
 verify_jwt = false
+
+[functions.resolve-link]
+verify_jwt = false

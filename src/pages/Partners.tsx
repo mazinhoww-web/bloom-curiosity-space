@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +30,8 @@ import {
 } from "lucide-react";
 
 export default function Partners() {
+  const [searchParams] = useSearchParams();
+  const isMarca = searchParams.get("tipo") === "marca";
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -83,8 +87,15 @@ export default function Partners() {
 
   return (
     <MainLayout>
+      {/* Breadcrumbs */}
+      <div className="container pt-6 relative z-20">
+        <Breadcrumbs 
+          items={[{ label: isMarca ? "Para Marcas" : "Para Lojas" }]} 
+        />
+      </div>
+
       {/* HERO - Focado em decisão de compra */}
-      <section className="relative overflow-hidden bg-foreground py-20 md:py-28 lg:py-36">
+      <section className="relative overflow-hidden bg-foreground py-20 md:py-28 lg:py-36 -mt-6">
         <div className="absolute inset-0 opacity-5">
           <div className="h-full w-full" style={{
             backgroundImage: `linear-gradient(hsl(var(--accent)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--accent)) 1px, transparent 1px)`,

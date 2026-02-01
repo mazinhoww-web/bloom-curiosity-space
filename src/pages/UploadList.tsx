@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ArrowLeft } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -323,6 +324,12 @@ export default function UploadList() {
     <MainLayout>
       <div className="min-h-screen bg-gradient-to-b from-primary/5 via-background to-background py-8 md:py-12">
         <div className="container max-w-lg">
+          {/* Breadcrumbs */}
+          <Breadcrumbs 
+            items={[{ label: "Contribuir Lista" }]} 
+            className="mb-4"
+          />
+          
           {/* Progress Bar with animation */}
           <AnimatePresence>
             {showProgressBar && (

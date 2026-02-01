@@ -16,6 +16,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -334,14 +335,14 @@ export default function SchoolDetail() {
   return (
     <MainLayout>
       <div className="container py-8">
-        {/* Back link */}
-        <Link 
-          to="/escolas" 
-          className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-primary"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Voltar para escolas
-        </Link>
+        {/* Breadcrumbs */}
+        <Breadcrumbs 
+          items={[
+            { label: "Escolas", href: "/escolas" },
+            { label: school.name }
+          ]} 
+          className="mb-6"
+        />
 
         {/* School header */}
         <div className="mb-8">

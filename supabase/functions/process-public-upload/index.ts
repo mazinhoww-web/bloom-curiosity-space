@@ -156,6 +156,8 @@ Deno.serve(async (req) => {
       const mimeType = mimeTypeMap[fileExt] || uploadedList.file_type;
 
       // Call the existing analyze-material-list function
+      console.log(`[process-public-upload] Calling AI analysis, file type: ${mimeType}, base64 length: ${base64.length}`);
+      
       const analyzeResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-material-list`, {
         method: 'POST',
         headers: {
@@ -163,9 +165,8 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          file_base64: base64,
-          mime_type: mimeType,
-          file_name: uploadedList.file_name,
+          image_base64: base64,
+          file_type: mimeType,
         }),
       });
 

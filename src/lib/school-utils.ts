@@ -1,6 +1,45 @@
 /**
- * Utility functions for school data display
+ * Utility functions for school data display and search
  */
+
+// ============================================
+// CEP Utilities
+// ============================================
+
+/**
+ * Normalizes a CEP to only digits (8 characters max)
+ * Examples:
+ * - "01003-001" -> "01003001"
+ * - "01003001" -> "01003001"
+ * - "01003" -> "01003"
+ */
+export function normalizeCep(cep: string): string {
+  if (!cep) return "";
+  return cep.replace(/\D/g, "").slice(0, 8);
+}
+
+/**
+ * Formats a CEP for display (XXXXX-XXX)
+ * Examples:
+ * - "01003001" -> "01003-001"
+ * - "01003" -> "01003"
+ */
+export function formatCep(cep: string): string {
+  const clean = normalizeCep(cep);
+  if (clean.length <= 5) return clean;
+  return `${clean.slice(0, 5)}-${clean.slice(5, 8)}`;
+}
+
+/**
+ * Checks if a query is a CEP search (5+ numeric digits)
+ */
+export function isCepSearch(query: string): boolean {
+  return normalizeCep(query).length >= 5;
+}
+
+// ============================================
+// School Name Utilities
+// ============================================
 
 /**
  * Cleans school name by removing leading codes/IDs

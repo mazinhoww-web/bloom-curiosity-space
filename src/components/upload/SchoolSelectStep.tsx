@@ -1,13 +1,13 @@
 import { useState, useCallback } from "react";
-import { Search, School, MapPin, Plus } from "lucide-react";
+import { Search, School, MapPin, Plus, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useSchoolSearch } from "@/hooks/use-school-search";
+import { cleanSchoolName, formatCep, isCepSearch, normalizeCep } from "@/lib/school-utils";
 
-interface School {
+interface SchoolData {
   id: string;
   name: string;
   city: string | null;
@@ -16,8 +16,8 @@ interface School {
 }
 
 interface SchoolSelectStepProps {
-  onSelect: (school: School | null, customName: string | null) => void;
-  selectedSchool: School | null;
+  onSelect: (school: SchoolData | null, customName: string | null) => void;
+  selectedSchool: SchoolData | null;
   customSchoolName: string | null;
 }
 
@@ -30,36 +30,18 @@ export function SchoolSelectStep({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customName, setCustomName] = useState(customSchoolName || "");
 
-  // Search schools
-  const { data: schools, isLoading } = useQuery({
-    queryKey: ["schools-search", searchQuery],
-    queryFn: async () => {
-      if (!searchQuery || searchQuery.length < 2) return [];
-      
-      // Clean CEP characters for CEP search
-      const cleanCep = searchQuery.replace(/\D/g, "");
-      const isCepSearch = cleanCep.length >= 5;
-
-      let query = supabase
-        .from("schools")
-        .select("id, name, city, state, cep")
-        .eq("is_active", true)
-        .limit(10);
-
-      if (isCepSearch) {
-        query = query.ilike("cep", `${cleanCep}%`);
-      } else {
-        query = query.ilike("name", `%${searchQuery}%`);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as School[];
-    },
-    enabled: searchQuery.length >= 2,
+  // Use the optimized search hook
+  const { schools, isLoading, isFetching, debouncedQuery } = useSchoolSearch({
+    query: searchQuery,
+    filters: { state: "", city: "" },
+    page: 0,
+    pageSize: 10,
   });
 
-  const handleSelectSchool = useCallback((school: School) => {
+  // Determine if we have valid search criteria
+  const hasValidSearch = debouncedQuery.length >= 2 || isCepSearch(debouncedQuery);
+
+  const handleSelectSchool = useCallback((school: SchoolData) => {
     onSelect(school, null);
     setShowCustomInput(false);
     setSearchQuery("");
@@ -79,7 +61,7 @@ export function SchoolSelectStep({
         </div>
         <h2 className="font-display text-2xl font-bold">Qual escola?</h2>
         <p className="mt-2 text-muted-foreground">
-          Busque pelo nome ou CEP da escola
+          Busque pelo nome ou CEP (mínimo 5 dígitos)
         </p>
       </div>
 
@@ -90,12 +72,22 @@ export function SchoolSelectStep({
           placeholder="Nome da escola ou CEP..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10"
+          className="pl-10 pr-10"
         />
+        {isFetching && (
+          <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        )}
       </div>
 
+      {/* Search hint for CEP */}
+      {searchQuery && !isCepSearch(searchQuery) && normalizeCep(searchQuery).length > 0 && normalizeCep(searchQuery).length < 5 && (
+        <p className="text-sm text-muted-foreground text-center">
+          Digite pelo menos 5 dígitos do CEP para buscar
+        </p>
+      )}
+
       {/* Search Results */}
-      {isLoading && (
+      {isLoading && hasValidSearch && (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-16 w-full" />
@@ -103,7 +95,7 @@ export function SchoolSelectStep({
         </div>
       )}
 
-      {schools && schools.length > 0 && (
+      {hasValidSearch && !isLoading && schools.length > 0 && (
         <div className="space-y-2">
           {schools.map((school) => (
             <Card
@@ -111,17 +103,25 @@ export function SchoolSelectStep({
               className={`cursor-pointer transition-all hover:border-primary ${
                 selectedSchool?.id === school.id ? "border-primary bg-primary/5" : ""
               }`}
-              onClick={() => handleSelectSchool(school)}
+              onClick={() => handleSelectSchool({
+                id: school.id,
+                name: school.name,
+                city: school.city,
+                state: school.state,
+                cep: school.cep,
+              })}
             >
               <CardContent className="flex items-center gap-3 p-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
                   <School className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium">{school.name}</p>
+                  <p className="font-medium">{cleanSchoolName(school.name)}</p>
                   <p className="flex items-center gap-1 text-sm text-muted-foreground">
                     <MapPin className="h-3 w-3" />
-                    {school.city}, {school.state}
+                    {school.city && school.state 
+                      ? `${school.city}, ${school.state}` 
+                      : `CEP: ${formatCep(school.cep)}`}
                   </p>
                 </div>
               </CardContent>
@@ -130,7 +130,7 @@ export function SchoolSelectStep({
         </div>
       )}
 
-      {searchQuery.length >= 2 && !isLoading && schools?.length === 0 && (
+      {hasValidSearch && !isLoading && schools.length === 0 && (
         <div className="rounded-lg border border-dashed p-6 text-center">
           <p className="text-muted-foreground">Nenhuma escola encontrada</p>
         </div>
@@ -144,9 +144,11 @@ export function SchoolSelectStep({
               <School className="h-5 w-5 text-success" />
             </div>
             <div className="flex-1">
-              <p className="font-medium text-success">{selectedSchool.name}</p>
+              <p className="font-medium text-success">{cleanSchoolName(selectedSchool.name)}</p>
               <p className="text-sm text-muted-foreground">
-                {selectedSchool.city}, {selectedSchool.state}
+                {selectedSchool.city && selectedSchool.state 
+                  ? `${selectedSchool.city}, ${selectedSchool.state}`
+                  : `CEP: ${formatCep(selectedSchool.cep)}`}
               </p>
             </div>
             <Button

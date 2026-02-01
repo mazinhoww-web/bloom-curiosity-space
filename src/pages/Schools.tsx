@@ -1,17 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Search, School as SchoolIcon, MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { School } from "@/types/database";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
 import { useAnalytics } from "@/hooks/use-analytics";
-import { cleanSchoolName } from "@/lib/school-utils";
+import { useSchoolSearch } from "@/hooks/use-school-search";
+import { cleanSchoolName, formatCep, normalizeCep, isCepSearch } from "@/lib/school-utils";
 
 const ITEMS_PER_PAGE = 50;
 
@@ -22,62 +20,30 @@ export default function Schools() {
     state: searchParams.get("estado") || "",
     city: searchParams.get("cidade") || "",
   });
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(0);
   const { trackCepSearch } = useAnalytics();
   const lastTrackedCep = useRef<string>("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["schools", searchQuery, filters, page],
-    queryFn: async () => {
-      let query = supabase
-        .from("schools")
-        .select("*", { count: "exact" })
-        .eq("is_active", true)
-        .order("name")
-        .range((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE - 1);
-
-      // Filter by search query
-      if (searchQuery.trim()) {
-        const cleanSearch = searchQuery.replace(/\D/g, "");
-        if (cleanSearch.length > 0 && cleanSearch.length <= 8) {
-          // Likely a CEP
-          query = query.ilike("cep", `${cleanSearch}%`);
-        } else {
-          // Search by name or city
-          query = query.or(
-            `name.ilike.%${searchQuery}%,city.ilike.%${searchQuery}%`
-          );
-        }
-      }
-
-      // Filter by state
-      if (filters.state) {
-        query = query.eq("state", filters.state);
-      }
-
-      // Filter by city
-      if (filters.city) {
-        query = query.eq("city", filters.city);
-      }
-
-      const { data, error, count } = await query;
-      if (error) throw error;
-      
-      // Track CEP search if it's a CEP query with results
-      const cleanCep = searchQuery.replace(/\D/g, "");
-      if (cleanCep.length >= 5 && cleanCep.length <= 8 && cleanCep !== lastTrackedCep.current) {
-        lastTrackedCep.current = cleanCep;
-        trackCepSearch(cleanCep, count || 0);
-      }
-      
-      return { schools: data as School[], total: count || 0 };
-    },
+  // Use the optimized search hook
+  const { schools, total, isLoading, isFetching, debouncedQuery } = useSchoolSearch({
+    query: searchQuery,
+    filters,
+    page,
+    pageSize: ITEMS_PER_PAGE,
   });
 
-  const schools = data?.schools || [];
-  const totalSchools = data?.total || 0;
-  const totalPages = Math.ceil(totalSchools / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
 
+  // Track CEP searches
+  useEffect(() => {
+    const cleanCep = normalizeCep(debouncedQuery);
+    if (isCepSearch(debouncedQuery) && cleanCep !== lastTrackedCep.current && total > 0) {
+      lastTrackedCep.current = cleanCep;
+      trackCepSearch(cleanCep, total);
+    }
+  }, [debouncedQuery, total, trackCepSearch]);
+
+  // Sync URL params
   useEffect(() => {
     const cepParam = searchParams.get("cep");
     const qParam = searchParams.get("q");
@@ -104,16 +70,22 @@ export default function Schools() {
   };
 
   const handleSearch = (value: string) => {
-    setSearchQuery(value);
-    setPage(1);
-    updateSearchParams(value, filters);
+    // Format CEP as user types
+    const cleanCep = normalizeCep(value);
+    const formatted = isCepSearch(value) ? formatCep(value) : value;
+    
+    setSearchQuery(formatted);
+    setPage(0);
+    updateSearchParams(formatted, filters);
   };
 
   const handleFiltersChange = (newFilters: SchoolFiltersState) => {
     setFilters(newFilters);
-    setPage(1);
+    setPage(0);
     updateSearchParams(searchQuery, newFilters);
   };
+
+  const hasSearchCriteria = searchQuery.length >= 2 || isCepSearch(searchQuery) || filters.state || filters.city;
 
   return (
     <MainLayout>
@@ -124,7 +96,7 @@ export default function Schools() {
               Encontre sua escola
             </h1>
             <p className="mb-8 text-muted-foreground">
-              Busque por CEP, nome da escola ou cidade para visualizar as listas de materiais.
+              Busque por CEP (mínimo 5 dígitos), nome da escola ou cidade para visualizar as listas de materiais.
             </p>
 
             {/* Search */}
@@ -135,9 +107,21 @@ export default function Schools() {
                 value={searchQuery}
                 onChange={(e) => handleSearch(e.target.value)}
                 className="h-14 rounded-xl border-border bg-card pl-5 pr-12 text-lg shadow-card"
+                maxLength={50}
               />
-              <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              {isFetching ? (
+                <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-muted-foreground" />
+              ) : (
+                <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              )}
             </div>
+
+            {/* Search hint */}
+            {searchQuery && !isCepSearch(searchQuery) && normalizeCep(searchQuery).length > 0 && normalizeCep(searchQuery).length < 5 && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Digite pelo menos 5 dígitos do CEP para buscar
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -150,17 +134,30 @@ export default function Schools() {
           </div>
 
           {/* Results count */}
-          {!isLoading && (
+          {hasSearchCriteria && !isLoading && (
             <p className="mb-6 text-sm text-muted-foreground">
-              {totalSchools} escola{totalSchools !== 1 ? "s" : ""} encontrada{totalSchools !== 1 ? "s" : ""}
+              {total.toLocaleString("pt-BR")} escola{total !== 1 ? "s" : ""} encontrada{total !== 1 ? "s" : ""}
               {searchQuery && ` para "${searchQuery}"`}
               {filters.state && ` em ${filters.state}`}
               {filters.city && ` - ${filters.city}`}
             </p>
           )}
 
+          {/* Help text when no search criteria */}
+          {!hasSearchCriteria && (
+            <div className="rounded-2xl border border-dashed bg-muted/30 p-12 text-center">
+              <Search className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <h3 className="mb-2 font-display text-xl font-semibold text-foreground">
+                Como buscar?
+              </h3>
+              <p className="text-muted-foreground">
+                Digite o CEP (mínimo 5 dígitos), nome da escola ou use os filtros de estado/cidade.
+              </p>
+            </div>
+          )}
+
           {/* Loading */}
-          {isLoading ? (
+          {hasSearchCriteria && isLoading ? (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {[...Array(12)].map((_, i) => (
                 <Card key={i}>
@@ -172,7 +169,7 @@ export default function Schools() {
                 </Card>
               ))}
             </div>
-          ) : schools.length > 0 ? (
+          ) : hasSearchCriteria && schools.length > 0 ? (
             <>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {schools.map((school) => (
@@ -192,7 +189,7 @@ export default function Schools() {
                           <span className="truncate">
                             {school.city && school.state
                               ? `${school.city}, ${school.state}`
-                              : `CEP: ${school.cep}`}
+                              : `CEP: ${formatCep(school.cep)}`}
                           </span>
                         </div>
                       </CardContent>
@@ -209,8 +206,8 @@ export default function Schools() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setPage(1)}
-                      disabled={page === 1}
+                      onClick={() => setPage(0)}
+                      disabled={page === 0}
                       className="h-9 w-9"
                     >
                       <ChevronsLeft className="h-4 w-4" />
@@ -220,8 +217,8 @@ export default function Schools() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
+                      onClick={() => setPage((p) => Math.max(0, p - 1))}
+                      disabled={page === 0}
                       className="h-9 w-9"
                     >
                       <ChevronLeft className="h-4 w-4" />
@@ -230,7 +227,8 @@ export default function Schools() {
                     {/* Page numbers */}
                     {(() => {
                       const maxVisible = 5;
-                      let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
+                      const currentPage = page + 1;
+                      let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
                       let endPage = Math.min(totalPages, startPage + maxVisible - 1);
                       
                       if (endPage - startPage + 1 < maxVisible) {
@@ -245,7 +243,7 @@ export default function Schools() {
                             key={1}
                             variant="outline"
                             size="sm"
-                            onClick={() => setPage(1)}
+                            onClick={() => setPage(0)}
                             className="h-9 min-w-[36px]"
                           >
                             1
@@ -262,9 +260,9 @@ export default function Schools() {
                         pages.push(
                           <Button
                             key={p}
-                            variant={page === p ? "default" : "outline"}
+                            variant={currentPage === p ? "default" : "outline"}
                             size="sm"
-                            onClick={() => setPage(p)}
+                            onClick={() => setPage(p - 1)}
                             className="h-9 min-w-[36px]"
                           >
                             {p}
@@ -283,7 +281,7 @@ export default function Schools() {
                             key={totalPages}
                             variant="outline"
                             size="sm"
-                            onClick={() => setPage(totalPages)}
+                            onClick={() => setPage(totalPages - 1)}
                             className="h-9 min-w-[36px]"
                           >
                             {totalPages.toLocaleString('pt-BR')}
@@ -298,8 +296,8 @@ export default function Schools() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                      disabled={page >= totalPages - 1}
                       className="h-9 w-9"
                     >
                       <ChevronRight className="h-4 w-4" />
@@ -309,8 +307,8 @@ export default function Schools() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setPage(totalPages)}
-                      disabled={page === totalPages}
+                      onClick={() => setPage(totalPages - 1)}
+                      disabled={page >= totalPages - 1}
                       className="h-9 w-9"
                     >
                       <ChevronsRight className="h-4 w-4" />
@@ -318,35 +316,31 @@ export default function Schools() {
                   </div>
                   
                   <p className="text-sm text-muted-foreground">
-                    Página {page.toLocaleString('pt-BR')} de {totalPages.toLocaleString('pt-BR')} ({totalSchools.toLocaleString('pt-BR')} escolas)
+                    Página {(page + 1).toLocaleString('pt-BR')} de {totalPages.toLocaleString('pt-BR')} ({total.toLocaleString('pt-BR')} escolas)
                   </p>
                 </div>
               )}
             </>
-          ) : (
+          ) : hasSearchCriteria ? (
             <div className="rounded-2xl border border-dashed bg-muted/30 p-12 text-center">
               <SchoolIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="mb-2 font-display text-xl font-semibold text-foreground">
                 Nenhuma escola encontrada
               </h3>
               <p className="mb-6 text-muted-foreground">
-                {searchQuery || filters.state || filters.city
-                  ? "Tente ajustar os filtros ou buscar por outro termo."
-                  : "Ainda não há escolas cadastradas."}
+                Tente ajustar os filtros ou buscar por outro termo.
               </p>
-              {(searchQuery || filters.state || filters.city) && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    handleSearch("");
-                    handleFiltersChange({ state: "", city: "" });
-                  }}
-                >
-                  Limpar filtros
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleSearch("");
+                  handleFiltersChange({ state: "", city: "" });
+                }}
+              >
+                Limpar filtros
+              </Button>
             </div>
-          )}
+          ) : null}
         </div>
       </section>
     </MainLayout>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   Plus,
   Search,
@@ -56,14 +56,13 @@ import { School as SchoolType } from "@/types/database";
 import { SchoolFormDialog } from "@/components/admin/SchoolFormDialog";
 import { SchoolImportDialog } from "@/components/admin/SchoolImportDialog";
 import { SchoolFilters, SchoolFiltersState } from "@/components/schools/SchoolFilters";
-import { cleanSchoolName } from "@/lib/school-utils";
+import { useSchoolSearch } from "@/hooks/use-school-search";
+import { cleanSchoolName, formatCep, isCepSearch, normalizeCep } from "@/lib/school-utils";
 
 const PAGE_SIZES = [20, 50, 100];
-const DEBOUNCE_MS = 400;
 
 export default function AdminSchools() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filters, setFilters] = useState<SchoolFiltersState>({ state: "", city: "" });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -74,19 +73,19 @@ export default function AdminSchools() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Proper debounce with useEffect
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-    }, DEBOUNCE_MS);
-    
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+  // Use the optimized search hook
+  const { schools, total, isLoading, isFetching, debouncedQuery } = useSchoolSearch({
+    query: searchQuery,
+    filters,
+    page,
+    pageSize,
+    debounceMs: 400,
+  });
 
   // Reset page when search or filters change
   useEffect(() => {
     setPage(0);
-  }, [debouncedSearch, filters]);
+  }, [debouncedQuery, filters]);
 
   // Fetch school stats
   const { data: stats } = useQuery({
@@ -102,59 +101,13 @@ export default function AdminSchools() {
     staleTime: 60000,
   });
 
-  // Fetch schools with pagination, search, and filters
-  const { data: schoolsData, isLoading, isFetching } = useQuery({
-    queryKey: ["admin-schools", debouncedSearch, filters, page, pageSize],
-    queryFn: async () => {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-
-      let query = supabase
-        .from("schools")
-        .select("*", { count: "exact" })
-        .order("name")
-        .range(from, to);
-
-      // Apply search filter
-      if (debouncedSearch.trim()) {
-        const cleanSearch = debouncedSearch.trim();
-        const isCepSearch = /^\d+$/.test(cleanSearch.replace(/\D/g, ''));
-        
-        if (isCepSearch) {
-          query = query.ilike("cep", `%${cleanSearch.replace(/\D/g, '')}%`);
-        } else {
-          query = query.ilike("name", `%${cleanSearch}%`);
-        }
-      }
-
-      // Apply state filter
-      if (filters.state) {
-        query = query.eq("state", filters.state);
-      }
-
-      // Apply city filter
-      if (filters.city) {
-        query = query.eq("city", filters.city);
-      }
-
-      const { data, error, count } = await query;
-      if (error) throw error;
-      
-      return {
-        schools: data as SchoolType[],
-        total: count || 0,
-      };
-    },
-    placeholderData: (prev) => prev,
-  });
-
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("schools").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-schools"] });
+      queryClient.invalidateQueries({ queryKey: ["schools-search"] });
       queryClient.invalidateQueries({ queryKey: ["schools-stats"] });
       toast({
         title: "Escola excluída",
@@ -187,7 +140,8 @@ export default function AdminSchools() {
     setSelectedSchool(null);
   };
 
-  const totalPages = Math.ceil((schoolsData?.total || 0) / pageSize);
+  const totalPages = Math.ceil(total / pageSize);
+  const hasSearchCriteria = debouncedQuery.length >= 2 || isCepSearch(debouncedQuery) || filters.state || filters.city;
 
   return (
     <AdminLayout title="Escolas" description="Gerencie as escolas cadastradas">
@@ -216,8 +170,8 @@ export default function AdminSchools() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {debouncedSearch 
-                ? schoolsData?.total.toLocaleString('pt-BR') || '0'
+              {hasSearchCriteria 
+                ? total.toLocaleString('pt-BR')
                 : '-'
               }
             </div>
@@ -230,13 +184,13 @@ export default function AdminSchools() {
           <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 sm:max-w-md">
               <Input
-                placeholder="Buscar por nome ou CEP..."
+                placeholder="Buscar por nome ou CEP (min. 5 dígitos)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              {isFetching && (debouncedSearch || filters.state || filters.city) && (
+              {isFetching && hasSearchCriteria && (
                 <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
               )}
             </div>
@@ -257,8 +211,15 @@ export default function AdminSchools() {
             <SchoolFilters filters={filters} onFiltersChange={setFilters} />
           </div>
 
+          {/* Search hint for CEP */}
+          {searchQuery && !isCepSearch(searchQuery) && normalizeCep(searchQuery).length > 0 && normalizeCep(searchQuery).length < 5 && (
+            <div className="mb-4 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm text-warning-foreground">
+              Digite pelo menos 5 dígitos do CEP para buscar por CEP.
+            </div>
+          )}
+
           {/* Help text for search - only show if no search AND no filters */}
-          {!debouncedSearch && !filters.state && !filters.city && (
+          {!hasSearchCriteria && (
             <div className="mb-4 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
               <Search className="mx-auto mb-2 h-6 w-6" />
               <p>Digite o nome ou CEP para buscar escolas, ou use os filtros acima.</p>
@@ -266,11 +227,11 @@ export default function AdminSchools() {
             </div>
           )}
 
-          {(debouncedSearch || filters.state || filters.city) && isLoading ? (
+          {hasSearchCriteria && isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : (debouncedSearch || filters.state || filters.city) && schoolsData && schoolsData.schools.length > 0 ? (
+          ) : hasSearchCriteria && schools.length > 0 ? (
             <>
               <div className="overflow-x-auto">
                 <Table>
@@ -284,7 +245,7 @@ export default function AdminSchools() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {schoolsData.schools.map((school) => (
+                    {schools.map((school) => (
                       <TableRow key={school.id}>
                         <TableCell className="font-medium">{cleanSchoolName(school.name)}</TableCell>
                         <TableCell>
@@ -296,7 +257,7 @@ export default function AdminSchools() {
                           </div>
                         </TableCell>
                         <TableCell className="font-mono text-sm">
-                          {school.cep}
+                          {formatCep(school.cep)}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -313,13 +274,13 @@ export default function AdminSchools() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleEdit(school)}>
+                              <DropdownMenuItem onClick={() => handleEdit(school as unknown as SchoolType)}>
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => setDeleteSchool(school)}
+                                onClick={() => setDeleteSchool(school as unknown as SchoolType)}
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Excluir
@@ -356,7 +317,7 @@ export default function AdminSchools() {
                     </SelectContent>
                   </Select>
                   <span>
-                    de {schoolsData.total.toLocaleString('pt-BR')} resultados
+                    de {total.toLocaleString('pt-BR')} resultados
                   </span>
                 </div>
 
@@ -383,7 +344,7 @@ export default function AdminSchools() {
                 </div>
               </div>
             </>
-          ) : (debouncedSearch || filters.state || filters.city) ? (
+          ) : hasSearchCriteria ? (
             <div className="py-12 text-center">
               <p className="text-muted-foreground">
                 Nenhuma escola encontrada com os critérios selecionados.

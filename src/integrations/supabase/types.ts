@@ -1093,9 +1093,32 @@ export type Database = {
         Args: { _school_id: string; _user_id: string }
         Returns: boolean
       }
+      normalize_cep: { Args: { input_cep: string }; Returns: string }
       promote_list_to_official: {
         Args: { _list_id: string; _user_id: string }
         Returns: boolean
+      }
+      search_schools: {
+        Args: {
+          filter_city?: string
+          filter_state?: string
+          page_number?: number
+          page_size?: number
+          search_cep?: string
+          search_name?: string
+        }
+        Returns: {
+          address: string
+          cep: string
+          city: string
+          id: string
+          is_active: boolean
+          logo_url: string
+          name: string
+          slug: string
+          state: string
+          total_count: number
+        }[]
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }

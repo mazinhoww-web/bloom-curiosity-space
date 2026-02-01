@@ -1,104 +1,117 @@
 
+# Plano: Correção do Bug de Acesso ao Painel Admin
 
-## 📚 Lista Escolar - Plataforma de Materiais Escolares
+## Diagnóstico do Problema
 
-### Visão Geral
-Uma plataforma web para ajudar pais e responsáveis a encontrar e gerenciar listas de materiais escolares. Os usuários podem buscar escolas por CEP, visualizar listas organizadas por série e categoria, compartilhar com outros pais e acompanhar métricas.
+Foi identificada uma **race condition** no fluxo de autenticação que impede usuários admin de acessarem o painel.
 
----
+### Fluxo Atual (com bug)
+```text
+1. getSession() retorna sessão
+2. setUser(user) 
+3. checkAdminRole(userId) ← chamada assíncrona INICIA
+4. setIsLoading(false) ← PROBLEMA: executado ANTES do passo 3 terminar
+5. AdminLayout verifica: isLoading=false, isAdmin=false
+6. AdminLayout redireciona para "/" ← usuário removido do /admin
+7. checkAdminRole termina: setIsAdmin(true) ← tarde demais!
+```
 
-## 🎨 Design e Identidade Visual
-- **Estilo**: Colorido e amigável, ideal para o público escolar
-- **Paleta de cores**: Cores vibrantes (azul, verde, laranja, roxo) com tons alegres
-- **Tipografia**: Moderna e legível
-- **Ícones**: Ilustrações lúdicas e amigáveis relacionadas a materiais escolares
-- **UI**: Cards coloridos, badges de categoria, animações suaves
-
----
-
-## 🚀 Funcionalidades do MVP
-
-### 1. Página Inicial (Home)
-- Campo de busca de escolas por CEP com autocomplete
-- Banner hero atrativo com ilustrações escolares
-- Seção de "Como funciona" em 3 passos
-- Lista de escolas em destaque/recentes
-
-### 2. Página da Escola
-- Informações da escola (nome, endereço, contato)
-- Seletor de série escolar (Infantil ao 3º Médio)
-- Lista de materiais organizada por categoria
-- Valor total estimado da lista
-- Botões de compartilhamento (WhatsApp, copiar link)
-- Links para compra de cada item
-
-### 3. Painel Administrativo
-- Dashboard com estatísticas gerais (escolas, listas, itens)
-- Gerenciamento de escolas (CRUD)
-- Gerenciamento de listas de materiais por escola/série
-- Adição/edição de itens com preço e link de compra
-- Importação de escolas via CSV
-
-### 4. Métricas e Analytics
-- Total de cliques em links de compra
-- Total de compartilhamentos
-- Top itens mais clicados
-- Escolas mais ativas
-- Gráficos de tendências
+### Fluxo Corrigido
+```text
+1. getSession() retorna sessão
+2. setUser(user)
+3. await checkAdminRole(userId) ← aguarda conclusão
+4. setIsLoading(false) ← agora isAdmin já tem valor correto
+5. AdminLayout verifica: isLoading=false, isAdmin=true
+6. AdminLayout renderiza painel admin corretamente
+```
 
 ---
 
-## 🗄️ Estrutura do Banco de Dados (Supabase)
+## Solução
 
-**Tabelas principais:**
-- **schools**: Escolas (nome, CEP, endereço, cidade, estado, slug)
-- **grades**: Séries escolares (17 séries do Infantil ao 3º Médio)
-- **material_categories**: Categorias (Papelaria, Cadernos, Arte, etc)
-- **material_lists**: Listas por escola/série/ano com versionamento
-- **material_items**: Itens individuais com preço e links
-- **purchase_events**: Tracking de cliques em compra
-- **share_events**: Tracking de compartilhamentos
+Modificar o `AuthContext.tsx` para garantir que o loading só termine após a verificação do papel de admin.
+
+### Arquivo: `src/contexts/AuthContext.tsx`
+
+**Mudanças necessárias:**
+
+1. **Aguardar checkAdminRole antes de setIsLoading(false)**
+   - Mudar a chamada no `getSession()` para usar `await`
+   - Garantir que `isLoading` só vire `false` após a verificação completa
+
+2. **Adicionar tratamento de erro mais robusto**
+   - Garantir que `setIsLoading(false)` é chamado mesmo em caso de erro
+
+**Código atualizado:**
+
+```typescript
+useEffect(() => {
+  // Set up auth state listener FIRST
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      // Defer admin check with setTimeout to avoid deadlock
+      if (session?.user) {
+        setTimeout(() => {
+          checkAdminRole(session.user.id);
+        }, 0);
+      } else {
+        setIsAdmin(false);
+      }
+    }
+  );
+
+  // THEN check for existing session
+  const initializeAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        await checkAdminRole(session.user.id);  // AGUARDA conclusão
+      }
+    } catch (error) {
+      console.error("Error initializing auth:", error);
+    } finally {
+      setIsLoading(false);  // SEMPRE executa após tudo
+    }
+  };
+
+  initializeAuth();
+
+  return () => subscription.unsubscribe();
+}, []);
+```
 
 ---
 
-## 🔐 Autenticação e Permissões
+## Detalhes Técnicos
 
-- Login/cadastro para administradores
-- Área pública sem necessidade de login (busca e visualização)
-- Painel admin protegido por autenticação
-- Políticas de segurança (RLS) para proteger dados
+### Mudança Principal
+- O `setIsLoading(false)` será movido para dentro de um bloco `finally` que só executa após o `checkAdminRole` terminar
+- Isso garante que quando o `AdminLayout` verificar `isLoading`, o `isAdmin` já terá o valor correto
+
+### Comportamento Esperado Após Correção
+1. Usuário acessa `/admin`
+2. `AdminLayout` mostra loading spinner
+3. `AuthContext` verifica sessão E papel de admin
+4. Só então `isLoading` vira `false`
+5. Se `isAdmin=true`, painel é renderizado
+6. Se `isAdmin=false`, redireciona para `/`
 
 ---
 
-## 📱 Responsividade
+## Resumo das Alterações
 
-- Design mobile-first
-- Experiência otimizada para smartphones (público principal: pais)
-- Layout adaptável para tablets e desktop
+| Arquivo | Tipo de Alteração |
+|---------|-------------------|
+| `src/contexts/AuthContext.tsx` | Correção do fluxo assíncrono |
 
----
-
-## 📋 Fases de Implementação
-
-**Fase 1 - Fundação**
-- Configurar Supabase e criar schema do banco
-- Criar estrutura de rotas e navegação
-- Implementar design system com cores e componentes
-
-**Fase 2 - Área Pública**
-- Página inicial com busca por CEP
-- Página da escola com seletor de série
-- Visualização de lista de materiais
-- Compartilhamento de listas
-
-**Fase 3 - Painel Admin**
-- Autenticação de administradores
-- Dashboard com métricas
-- CRUD de escolas
-- CRUD de listas e itens
-
-**Fase 4 - Analytics**
-- Tracking de eventos (cliques, compartilhamentos)
-- Página de métricas com gráficos
-- Top itens e escolas ativas
-
+### Impacto
+- Zero mudanças na UI
+- Zero mudanças no banco de dados
+- Apenas correção de lógica no contexto de autenticação

@@ -65,15 +65,6 @@ export function useLinkResolver() {
       if (schoolId) params.set("school_id", schoolId);
       if (listId) params.set("list_id", listId);
 
-      const { data, error } = await supabase.functions.invoke("resolve-link", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: null,
-      });
-
-      // Since invoke doesn't support query params well, we'll use fetch directly
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-link?${params.toString()}`,
         {

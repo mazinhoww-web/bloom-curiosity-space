@@ -131,12 +131,12 @@ async function logMetric(
   }
 }
 
-// Helper function to call OpenRouter with specific free model config
+// Helper function to call OpenRouter with NVIDIA Nemotron (vision-capable free model)
 async function callOpenRouter(
   apiKey: string, 
   imageContent: { type: string; image_url: { url: string } }
 ): Promise<{ success: boolean; content?: string; error?: string; status?: number; responseTimeMs: number }> {
-  console.log("[AI] Calling OpenRouter with arcee-ai/trinity-large-preview:free...");
+  console.log("[AI] Calling OpenRouter with nvidia/nemotron-nano-12b-v2-vl:free...");
   
   const startTime = Date.now();
   
@@ -150,7 +150,7 @@ async function callOpenRouter(
         "X-Title": "Lista Escolar",
       },
       body: JSON.stringify({
-        model: "arcee-ai/trinity-large-preview:free",
+        model: "nvidia/nemotron-nano-12b-v2-vl:free",
         messages: [
           {
             role: "system",
@@ -168,7 +168,7 @@ async function callOpenRouter(
           }
         ],
         temperature: 0.2,
-        max_tokens: 800,
+        max_tokens: 2048,
       }),
     });
 
@@ -187,7 +187,7 @@ async function callOpenRouter(
       return { success: false, error: "Empty response from AI", responseTimeMs };
     }
 
-    console.log(`[AI] OpenRouter response received successfully in ${responseTimeMs}ms`);
+    console.log(`[AI] OpenRouter (Nemotron VL) response received successfully in ${responseTimeMs}ms`);
     return { success: true, content, responseTimeMs };
   } catch (error) {
     const responseTimeMs = Date.now() - startTime;
@@ -315,9 +315,9 @@ serve(async (req) => {
     let usedProvider = "none";
     let fallbackUsed = false;
 
-    // Try OpenRouter first (primary) with free model
+    // Try OpenRouter first (primary) with NVIDIA Nemotron VL (vision-capable free model)
     if (OPENROUTER_API_KEY) {
-      console.log("[analyze-material-list] Trying OpenRouter (primary) with arcee-ai/trinity-large-preview:free...");
+      console.log("[analyze-material-list] Trying OpenRouter (primary) with nvidia/nemotron-nano-12b-v2-vl:free...");
       const openRouterResult = await callOpenRouter(OPENROUTER_API_KEY, imageContent);
 
       // Log OpenRouter attempt
